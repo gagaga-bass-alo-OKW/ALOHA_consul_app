@@ -88,21 +88,29 @@ with tab_new:
                 col_a.write(f"**{p_act['subject']}**: {p_act['specificTask']}")
                 p_act['status'] = col_b.select_slider("達成度", options=["×", "△", "◯", "◎"], value="◯", key=f"prev_status_{i}")
 
-    # --- 試験結果・目標入力（動的追加版） ---
+# --- 試験結果・目標入力（動的追加版） ---
     with st.container(border=True):
         st.subheader("📊 試験結果・目標設定")
         e_col1, e_col2 = st.columns([1, 2])
         exam_category = e_col1.selectbox("種別", ["定期試験", "東大二次模試", "共通テスト模試"])
         exam_name = e_col2.text_input("試験名 (例: 1学期中間)", key="in_exam_name")
         
-        st.markdown("""
-        | 科目名 | 今回の点数 | 次回の目標 | 差分 | 削除 |
-        | :--- | :--- | :--- | :--- | :--- |
-        """)
+        st.divider() # 区切り線
+
+        # タイトル行をカラムで作成（入力欄と同じ [2, 1, 1, 1, 0.5] の比率に設定）
+        h_col1, h_col2, h_col3, h_col4, h_col5 = st.columns([2, 1, 1, 1, 0.5])
+        h_col1.caption("科目名")
+        h_col2.caption("今回の点数")
+        h_col3.caption("次回の目標")
+        h_col4.caption("差分")
+        h_col5.caption("削除")
         
         score_results = []
+        # dynamic_scores の中身をループ
         for i, item in enumerate(st.session_state.dynamic_scores):
+            # 入力行をタイトルと同じ比率で分割
             r_col1, r_col2, r_col3, r_col4, r_col5 = st.columns([2, 1, 1, 1, 0.5])
+            
             sub = r_col1.text_input("科目名", value=item.get('subject', ''), key=f"sub_name_{i}", label_visibility="collapsed")
             score = r_col2.number_input("点数", value=0, key=f"sub_score_{i}", label_visibility="collapsed")
             target = r_col3.number_input("目標", value=0, key=f"sub_target_{i}", label_visibility="collapsed")
@@ -110,7 +118,8 @@ with tab_new:
             # 差分の計算
             diff = score - target
             diff_text = f"{diff:+}" if target > 0 else "-"
-            r_col4.markdown(f"<div style='text-align: center; padding-top: 5px;'>{diff_text}</div>", unsafe_allow_html=True)
+            # 中央揃えで表示
+            r_col4.markdown(f"<div style='text-align: center; font-weight: bold; margin-top: 10px;'>{diff_text}</div>", unsafe_allow_html=True)
             
             if r_col5.button("🗑️", key=f"sub_del_{i}"):
                 st.session_state.dynamic_scores.pop(i)
@@ -121,7 +130,7 @@ with tab_new:
         if st.button("＋ 科目を追加"):
             st.session_state.dynamic_scores.append({'subject': ''})
             st.rerun()
-
+            
     # --- 課題・ネクストアクション ---
     current_issue = st.text_area("課題認識・指導内容", key="in_issue")
 
