@@ -8,6 +8,22 @@ from google.oauth2.service_account import Credentials
 # --- 設定 ---
 st.set_page_config(page_title="ALOHA Mentoring Base Pro", layout="wide")
 
+def get_gspread_client():
+    try:
+        # SecretsからJSON文字列を取得してパース
+        json_str = st.secrets["gspread_credentials"]["json_content"]
+        creds_dict = json.loads(json_str) # ここでJSONとして読み込む
+        
+        scopes = [
+            "https://www.googleapis.com/auth/spreadsheets",
+            "https://www.googleapis.com/auth/drive"
+        ]
+        creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
+        return gspread.authorize(creds)
+    except Exception as e:
+        st.error(f"認証エラー: {e}")
+        return None
+
 # --- Google Sheets 接続関数 (gspread使用) ---
 def get_gspread_client():
     try:
