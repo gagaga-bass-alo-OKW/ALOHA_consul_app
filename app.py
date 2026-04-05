@@ -27,16 +27,26 @@ def get_gspread_client():
 # --- Google Sheets 接続関数 (gspread使用) ---
 def get_gspread_client():
     try:
-        # Secretsから認証情報を取得
-        creds_dict = st.secrets["gspread_credentials"]
+        # 1. Secretsから辞書として直接取得（json.loadsを使わない）
+        if "gspread_credentials" not in st.secrets:
+            st.error("Secretsに [gspread_credentials] の見出しが見つかりません。")
+            return None
+            
+        # 2. Secretsの内容を辞書形式に変換
+        creds_dict = dict(st.secrets["gspread_credentials"])
+        
+        # 3. 認証情報の作成
         scopes = [
             "https://www.googleapis.com/auth/spreadsheets",
             "https://www.googleapis.com/auth/drive"
         ]
         creds = Credentials.from_service_account_info(creds_dict, scopes=scopes)
         return gspread.authorize(creds)
+        
     except Exception as e:
-        st.error(f"認証エラー: {e}")
+        st.error(f"認証エラーの詳細: {e}")
+        # どの項目が足りないかデバッグ表示
+        st.write("現在Secretsから読み込めている項目:", list(st.secrets["gspread_credentials"].keys()))
         return None
 
 # --- データ読み書きロジック ---
