@@ -89,7 +89,7 @@ if 'dynamic_scores' not in st.session_state:
 
 # --- 6. UI構築 ---
 st.title("🎓 ALOHA Mentoring Base Pro")
-m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
+m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="家庭教師")
 
 tab_new, tab_search, tab_stats, tab_preview = st.tabs(["📝 面談記録入力", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"])
 
@@ -97,7 +97,7 @@ with tab_new:
     # 基本情報
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
-        student_name = c1.text_input("生徒氏名")
+        student_name = c1.text_input("生徒氏名（間にスペースなし）")
         if c1.button("🔄 前回データを読み込む"):
             last_row = get_last_session(student_name)
             if last_row is not None:
