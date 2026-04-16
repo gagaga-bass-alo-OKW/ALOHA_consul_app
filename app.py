@@ -89,7 +89,7 @@ if 'dynamic_scores' not in st.session_state:
 
 # --- 6. UI構築 ---
 st.title("🎓 ALOHA Mentoring Base Pro")
-m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="家庭教師")
+m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
 
 tab_new, tab_search, tab_stats, tab_preview = st.tabs(["📝 面談記録入力", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"])
 
@@ -97,7 +97,7 @@ with tab_new:
     # 基本情報
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
-        student_name = c1.text_input("生徒氏名（間にスペースなし）")
+        student_name = c1.text_input("生徒氏名")
         if c1.button("🔄 前回データを読み込む"):
             last_row = get_last_session(student_name)
             if last_row is not None:
@@ -121,7 +121,7 @@ with tab_new:
     # 試験結果
     with st.container(border=True):
         st.subheader("📊 試験結果・目標設定")
-        exam_name = st.text_input("試験名 (例: 1学期中間)")
+        exam_name = st.text_area("試験名 (例: 1学期中間)", height=68) # 改行可能に
         score_results = []
         for i, item in enumerate(st.session_state.dynamic_scores):
             r = st.columns([2, 1, 1, 1, 0.5])
@@ -134,18 +134,21 @@ with tab_new:
             score_results.append({"subject": sub, "score": sc, "target": tg})
         if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
 
-    current_issue = st.text_area("課題認識・指導内容")
+    current_issue = st.text_area("課題認識・指導内容", height=150) # 高さを十分に確保
 
-    # --- 🚀 ネクストアクション (ここが復活) ---
+    # --- 🚀 ネクストアクション (記述欄をすべて改行可能に変更) ---
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1}", expanded=True):
             ac1, ac2, ac3 = st.columns([2, 1, 2])
             st.session_state.actions[i]['subject'] = ac1.text_input("教科", value=action['subject'], key=f"as_{i}")
             st.session_state.actions[i]['priority'] = ac2.selectbox("優先", ["高", "中", "低"], key=f"ap_{i}")
-            st.session_state.actions[i]['deadline'] = ac3.text_input("期限", value=action['deadline'], key=f"ad_{i}")
-            st.session_state.actions[i]['policy'] = st.text_input("方針設定", value=action.get('policy',''), key=f"apol_{i}")
-            st.session_state.actions[i]['specificTask'] = st.text_input("具体的タスク", value=action.get('specificTask',''), key=f"atask_{i}")
+            st.session_state.actions[i]['deadline'] = ac3.text_area("期限", value=action['deadline'], key=f"ad_{i}", height=68)
+            
+            # 方針設定と具体的タスクを改行可能に
+            st.session_state.actions[i]['policy'] = st.text_area("方針設定", value=action.get('policy',''), key=f"apol_{i}", height=100)
+            st.session_state.actions[i]['specificTask'] = st.text_area("具体的タスク", value=action.get('specificTask',''), key=f"atask_{i}", height=100)
+            
             if st.button("アクション削除", key=f"adel_{i}"):
                 st.session_state.actions.pop(i); st.rerun()
     if st.button("＋ アクション追加"):
