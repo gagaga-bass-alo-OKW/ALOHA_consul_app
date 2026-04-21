@@ -9,7 +9,8 @@ from io import BytesIO
 
 # --- 1. 基本設定 ---
 st.set_page_config(page_title="ALOHA Mentoring Base Pro", layout="wide")
-COLUMNS = ["日付", "種別", "担当メンター", "生徒氏名", "学年", "文理", "試験名", "課題", "データJSON"]
+# 講師用メモを最後に追加
+COLUMNS = ["日付", "種別", "担当メンター", "生徒氏名", "学年", "文理", "試験名", "課題", "データJSON", "講師用メモ"]
 
 # --- 2. Google Sheets 接続関数 ---
 def get_gspread_client():
@@ -121,7 +122,7 @@ with tab_new:
     # 試験結果
     with st.container(border=True):
         st.subheader("📊 試験結果・目標設定")
-        exam_name = st.text_area("試験名 (例: 1学期中間)", height=68) # 改行可能に
+        exam_name = st.text_area("試験名 (例: 1学期中間)", height=68)
         score_results = []
         for i, item in enumerate(st.session_state.dynamic_scores):
             r = st.columns([2, 1, 1, 1, 0.5])
@@ -134,9 +135,13 @@ with tab_new:
             score_results.append({"subject": sub, "score": sc, "target": tg})
         if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
 
-    current_issue = st.text_area("課題認識・指導内容", height=150) # 高さを十分に確保
+    current_issue = st.text_area("課題認識・指導内容 (生徒への共有用)", height=150)
 
-    # --- 🚀 ネクストアクション (記述欄をすべて改行可能に変更) ---
+    # --- 🔒 講師用メモ (ここを追加) ---
+    with st.expander("🔐 講師用メモ (生徒には共有されません)", expanded=False):
+        mentor_private_memo = st.text_area("内部引き継ぎ事項・懸念点など", key="private_memo", height=150, help="この内容はレポートプレビューには表示されません。")
+
+    # --- 🚀 ネクストアクション ---
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1}", expanded=True):
@@ -144,11 +149,8 @@ with tab_new:
             st.session_state.actions[i]['subject'] = ac1.text_input("教科", value=action['subject'], key=f"as_{i}")
             st.session_state.actions[i]['priority'] = ac2.selectbox("優先", ["高", "中", "低"], key=f"ap_{i}")
             st.session_state.actions[i]['deadline'] = ac3.text_area("期限", value=action['deadline'], key=f"ad_{i}", height=68)
-            
-            # 方針設定と具体的タスクを改行可能に
             st.session_state.actions[i]['policy'] = st.text_area("方針設定", value=action.get('policy',''), key=f"apol_{i}", height=100)
             st.session_state.actions[i]['specificTask'] = st.text_area("具体的タスク", value=action.get('specificTask',''), key=f"atask_{i}", height=100)
-            
             if st.button("アクション削除", key=f"adel_{i}"):
                 st.session_state.actions.pop(i); st.rerun()
     if st.button("＋ アクション追加"):
@@ -158,7 +160,18 @@ with tab_new:
         if not student_name: st.error("生徒氏名を入力してください")
         else:
             full_json = {"scores": score_results, "actions": st.session_state.actions}
-            new_row = pd.DataFrame([{"日付": date_val.strftime('%Y-%m-%d'), "種別": m_type, "担当メンター": mentor_name, "生徒氏名": student_name, "学年": grade, "文理": stream, "試験名": exam_name, "課題": current_issue, "データJSON": json.dumps(full_json, ensure_ascii=False)}])
+            new_row = pd.DataFrame([{
+                "日付": date_val.strftime('%Y-%m-%d'), 
+                "種別": m_type, 
+                "担当メンター": mentor_name, 
+                "生徒氏名": student_name, 
+                "学年": grade, 
+                "文理": stream, 
+                "試験名": exam_name, 
+                "課題": current_issue, 
+                "データJSON": json.dumps(full_json, ensure_ascii=False),
+                "講師用メモ": mentor_private_memo  # 保存
+            }])
             if save_data(new_row): st.success("保存完了！")
 
 # --- タブ2: 検索 & PDF ---
@@ -173,7 +186,10 @@ with tab_search:
         filtered = df_logs.copy()
         if target_s != "すべて": filtered = filtered[filtered['生徒氏名'] == target_s]
         filtered = filtered[(filtered['日付'] >= start_d) & (filtered['日付'] <= end_d)]
+        
+        # 講師用メモを表示に含める（管理者は見れるように）
         st.dataframe(filtered.drop(columns=["データJSON"]), use_container_width=True)
+        
         if target_s != "すべて" and not filtered.empty:
             if st.button(f"📄 {target_s}様のレポートをPDF出力"):
                 pdf = create_pdf(filtered, target_s); st.download_button("📥 ダウンロード", pdf, f"{target_s}.pdf")
@@ -191,6 +207,7 @@ with tab_stats:
 # --- タブ4: レポートプレビュー ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
+    # ここには mentor_private_memo を含めない
     report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n■課題認識\n{current_issue}\n\n■今後のアクション\n"
     for a in st.session_state.actions:
         report += f"・{a['subject']}: {a['specificTask']} ({a['deadline']})\n"
