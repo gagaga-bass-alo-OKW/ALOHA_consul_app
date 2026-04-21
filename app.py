@@ -197,12 +197,45 @@ with tab_search:
 
 # --- タブ3: 統計 ---
 with tab_stats:
-    st.subheader("📈 メンター別指導回数")
+    st.subheader("📈 指導回数・出席統計")
+    
     if not df_logs.empty:
-        stats = df_logs['担当メンター'].value_counts().reset_index()
-        stats.columns = ['メンター名', '指導回数']
-        st.bar_chart(stats.set_index('メンター名'))
-        st.table(stats)
+        # 1. 集計単位の選択
+        unit_map = {
+            "日ごと": "D",
+            "週ごと": "W-MON",  # 月曜始まりの週
+            "月ごと": "ME",
+            "年ごと": "YE"
+        }
+        selected_unit_label = st.selectbox("集計単位を選択してください", list(unit_map.keys()), index=1)
+        unit_code = unit_map[selected_unit_label]
+
+        # 2. データの準備（日付をIndexにして集計しやすくする）
+        df_stats = df_logs.copy()
+        df_stats['日付'] = pd.to_datetime(df_stats['日付'])
+        
+        # 3. 期間・メンターごとにカウントを算出
+        # 日付とメンター名でグルーピングしてサイズを取得
+        pivot_df = df_stats.groupby([pd.Grouper(key='日付', freq=unit_code), '担当メンター']).size().unstack(fill_value=0)
+
+        # グラフの表示
+        st.write(f"### {selected_unit_label}の指導推移")
+        st.bar_chart(pivot_df)
+
+        # 4. 詳細数値表
+        with st.expander("詳細な集計データを確認"):
+            # 合計列を追加して降順に
+            summary_table = pivot_df.copy()
+            summary_table.index = summary_table.index.date # 表示用に日付型に戻す
+            st.dataframe(summary_table, use_container_width=True)
+            
+            st.write("📊 **メンター別の累計指導回数**")
+            total_stats = df_logs['担当メンター'].value_counts().reset_index()
+            total_stats.columns = ['メンター名', '累計回数']
+            st.table(total_stats)
+            
+    else:
+        st.info("統計を表示するためのデータがまだありません。")
 
 # --- タブ4: レポートプレビュー ---
 with tab_preview:
