@@ -281,4 +281,4 @@ with tab_preview:
         report += "\n" # アクションごとの改行
         
     st.code(report, language="text")
-    st.info("💡 上記のテキストをコピーしてLINEやチャットツールに貼り付けてください。")
+    st.info("💡 上記のテキストをコピーしてLINEと指導報告に貼り付けてください。")
