@@ -9,7 +9,6 @@ from io import BytesIO
 
 # --- 1. 基本設定 ---
 st.set_page_config(page_title="ALOHA Mentoring Base Pro", layout="wide")
-# 講師用メモを最後に追加
 COLUMNS = ["日付", "種別", "担当メンター", "生徒氏名", "学年", "文理", "試験名", "課題", "データJSON", "講師用メモ"]
 
 # --- 2. Google Sheets 接続関数 ---
@@ -94,7 +93,19 @@ m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], 
 
 tab_new, tab_search, tab_stats, tab_preview = st.tabs(["📝 面談記録入力", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"])
 
+# --- タブ1: 入力 (Googleフォーム連携追加) ---
 with tab_new:
+    # Googleフォームへのリンクボタン (目立つように最上部に配置)
+    st.markdown("### 📋 外部報告フォーム")
+    st.link_button(
+        "🚀 Googleフォームで報告書を提出する", 
+        "https://docs.google.com/forms/d/e/1FAIpQLSdLYRJaDRWkYImkm3pcwDY_lywllRQCcoDWm64XMKsdu2el0w/viewform", 
+        type="primary", 
+        use_container_width=True
+    )
+    st.caption("※報告書の正式な提出は上のボタンから行ってください。以下の入力欄はデータベース保存用です。")
+    st.divider()
+
     # 基本情報
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
@@ -137,11 +148,11 @@ with tab_new:
 
     current_issue = st.text_area("課題認識・指導内容 (生徒への共有用)", height=150)
 
-    # --- 🔒 講師用メモ (ここを追加) ---
-    with st.expander("🔐 講師用メモ (生徒には共有されません)", expanded=False):
-        mentor_private_memo = st.text_area("内部引き継ぎ事項・懸念点など", key="private_memo", height=150, help="この内容はレポートプレビューには表示されません。")
+    # 講師用メモ
+    with st.expander("🔐 講師用メモ (内部引き継ぎ用)", expanded=False):
+        mentor_private_memo = st.text_area("内部引き継ぎ事項・懸念点など", key="private_memo", height=150)
 
-    # --- 🚀 ネクストアクション ---
+    # ネクストアクション
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1}", expanded=True):
@@ -156,23 +167,17 @@ with tab_new:
     if st.button("＋ アクション追加"):
         st.session_state.actions.append({'subject': '', 'priority': '中', 'policy': '', 'specificTask': '', 'deadline': '次回まで'}); st.rerun()
 
-    if st.button("💾 保存する", type="primary"):
+    if st.button("💾 データベースに保存する", type="primary"):
         if not student_name: st.error("生徒氏名を入力してください")
         else:
             full_json = {"scores": score_results, "actions": st.session_state.actions}
             new_row = pd.DataFrame([{
-                "日付": date_val.strftime('%Y-%m-%d'), 
-                "種別": m_type, 
-                "担当メンター": mentor_name, 
-                "生徒氏名": student_name, 
-                "学年": grade, 
-                "文理": stream, 
-                "試験名": exam_name, 
-                "課題": current_issue, 
-                "データJSON": json.dumps(full_json, ensure_ascii=False),
-                "講師用メモ": mentor_private_memo  # 保存
+                "日付": date_val.strftime('%Y-%m-%d'), "種別": m_type, "担当メンター": mentor_name, 
+                "生徒氏名": student_name, "学年": grade, "文理": stream, "試験名": exam_name, 
+                "課題": current_issue, "データJSON": json.dumps(full_json, ensure_ascii=False),
+                "講師用メモ": mentor_private_memo
             }])
-            if save_data(new_row): st.success("保存完了！")
+            if save_data(new_row): st.success("データベースへの保存が完了しました！")
 
 # --- タブ2: 検索 & PDF ---
 with tab_search:
@@ -186,10 +191,7 @@ with tab_search:
         filtered = df_logs.copy()
         if target_s != "すべて": filtered = filtered[filtered['生徒氏名'] == target_s]
         filtered = filtered[(filtered['日付'] >= start_d) & (filtered['日付'] <= end_d)]
-        
-        # 講師用メモを表示に含める（管理者は見れるように）
         st.dataframe(filtered.drop(columns=["データJSON"]), use_container_width=True)
-        
         if target_s != "すべて" and not filtered.empty:
             if st.button(f"📄 {target_s}様のレポートをPDF出力"):
                 pdf = create_pdf(filtered, target_s); st.download_button("📥 ダウンロード", pdf, f"{target_s}.pdf")
@@ -197,50 +199,20 @@ with tab_search:
 
 # --- タブ3: 統計 ---
 with tab_stats:
-    st.subheader("📈 指導回数・出席統計")
-    
+    st.subheader("📈 指導統計")
     if not df_logs.empty:
-        # 1. 集計単位の選択
-        unit_map = {
-            "日ごと": "D",
-            "週ごと": "W-MON",  # 月曜始まりの週
-            "月ごと": "ME",
-            "年ごと": "YE"
-        }
-        selected_unit_label = st.selectbox("集計単位を選択してください", list(unit_map.keys()), index=1)
-        unit_code = unit_map[selected_unit_label]
-
-        # 2. データの準備（日付をIndexにして集計しやすくする）
+        unit_map = {"日ごと": "D", "週ごと": "W-MON", "月ごと": "ME", "年ごと": "YE"}
+        selected_unit = st.selectbox("集計単位", list(unit_map.keys()), index=1)
         df_stats = df_logs.copy()
         df_stats['日付'] = pd.to_datetime(df_stats['日付'])
-        
-        # 3. 期間・メンターごとにカウントを算出
-        # 日付とメンター名でグルーピングしてサイズを取得
-        pivot_df = df_stats.groupby([pd.Grouper(key='日付', freq=unit_code), '担当メンター']).size().unstack(fill_value=0)
-
-        # グラフの表示
-        st.write(f"### {selected_unit_label}の指導推移")
+        pivot_df = df_stats.groupby([pd.Grouper(key='日付', freq=unit_map[selected_unit]), '担当メンター']).size().unstack(fill_value=0)
         st.bar_chart(pivot_df)
-
-        # 4. 詳細数値表
-        with st.expander("詳細な集計データを確認"):
-            # 合計列を追加して降順に
-            summary_table = pivot_df.copy()
-            summary_table.index = summary_table.index.date # 表示用に日付型に戻す
-            st.dataframe(summary_table, use_container_width=True)
-            
-            st.write("📊 **メンター別の累計指導回数**")
-            total_stats = df_logs['担当メンター'].value_counts().reset_index()
-            total_stats.columns = ['メンター名', '累計回数']
-            st.table(total_stats)
-            
-    else:
-        st.info("統計を表示するためのデータがまだありません。")
+        st.table(pivot_df)
+    else: st.info("データがありません")
 
 # --- タブ4: レポートプレビュー ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
-    # ここには mentor_private_memo を含めない
     report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n■課題認識\n{current_issue}\n\n■今後のアクション\n"
     for a in st.session_state.actions:
         report += f"・{a['subject']}: {a['specificTask']} ({a['deadline']})\n"
