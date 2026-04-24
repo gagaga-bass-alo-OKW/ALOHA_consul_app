@@ -162,15 +162,26 @@ with tab_new:
     with st.expander("🔐 講師用メモ", expanded=False):
         mentor_private_memo = st.text_area("内部引き継ぎ事項など", key="private_memo", height=150)
 
+   # ネクストアクション
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
-        with st.expander(f"Action {i+1}", expanded=True):
+        with st.expander(f"Action {i+1} : {action.get('subject', '新規アクション')}", expanded=True):
             ac1, ac2, ac3 = st.columns([2, 1, 2])
             st.session_state.actions[i]['subject'] = ac1.text_input("教科", value=action['subject'], key=f"as_{i}")
             st.session_state.actions[i]['priority'] = ac2.selectbox("優先", ["高", "中", "低"], key=f"ap_{i}")
-            st.session_state.actions[i]['deadline'] = ac3.text_area("期限", value=action['deadline'], key=f"ad_{i}", height=68)
-            st.session_state.actions[i]['policy'] = st.text_area("方針設定", value=action.get('policy',''), key=f"apol_{i}", height=100)
-            st.session_state.actions[i]['specificTask'] = st.text_area("具体的タスク", value=action.get('specificTask',''), key=f"atask_{i}", height=100)
+            st.session_state.actions[i]['deadline'] = ac3.text_input("期限", value=action['deadline'], key=f"ad_{i}")
+            
+            st.session_state.actions[i]['policy'] = st.text_area("方針（なぜこの勉強をするか）", value=action.get('policy',''), key=f"apol_{i}", height=70)
+            
+            # --- 4つの要素に分解 ---
+            c_a, c_b = st.columns(2)
+            st.session_state.actions[i]['item'] = c_a.text_input("① 対象（どの教材・ページ？）", value=action.get('item',''), key=f"aitem_{i}", placeholder="ターゲット1900 1-200")
+            st.session_state.actions[i]['amount'] = c_b.text_input("② 量・頻度（1日どれくらい？）", value=action.get('amount',''), key=f"aamt_{i}", placeholder="1日50個×4日＋総復習")
+            
+            c_c, c_d = st.columns(2)
+            st.session_state.actions[i]['method'] = c_c.text_area("③ 方法（どうやってやる？）", value=action.get('method',''), key=f"ameth_{i}", height=100, placeholder="赤シートで隠して即答。間違えたら×。")
+            st.session_state.actions[i]['goal'] = c_d.text_area("④ 基準（完了の定義は？）", value=action.get('goal',''), key=f"agoal_{i}", height=100, placeholder="全問1秒以内に意味が出る。正答率95%以上。")
+            
             if st.button("アクション削除", key=f"adel_{i}"):
                 st.session_state.actions.pop(i); st.rerun()
     if st.button("＋ アクション追加"):
@@ -245,7 +256,29 @@ with tab_stats:
 # --- タブ5: レポートプレビュー ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
-    report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n■課題認識\n{current_issue}\n\n■今後のアクション\n"
-    for a in st.session_state.actions:
-        report += f"・{a['subject']}: {a['specificTask']} ({a['deadline']})\n"
-    st.code(report)
+    
+    # 基本情報の構築
+    report = f"【{m_type}報告書】\n"
+    report += f"実施日: {date_val}\n"
+    report += f"担当: {mentor_name}\n"
+    report += f"生徒: {student_name}様\n\n"
+    
+    report += f"■課題認識・指導内容\n{current_issue}\n\n"
+    
+    report += "■今後のアクション（ネクストアクション）\n"
+    
+    for i, a in enumerate(st.session_state.actions):
+        # 教科と優先度、期限を一行目に
+        priority_mark = "🔥" if a.get('priority') == "高" else "⭐"
+        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}) {priority_mark}\n"
+        
+        # 4つの要素をインデントして整理
+        if a.get('policy'): report += f"   - 方針: {a['policy']}\n"
+        if a.get('item'):   report += f"   - 対象: {a['item']}\n"
+        if a.get('amount'): report += f"   - ペース: {a['amount']}\n"
+        if a.get('method'): report += f"   - 方法: {a['method']}\n"
+        if a.get('goal'):   report += f"   - 完了基準: {a['goal']}\n"
+        report += "\n" # アクションごとの改行
+        
+    st.code(report, language="text")
+    st.info("💡 上記のテキストをコピーしてLINEやチャットツールに貼り付けてください。")
