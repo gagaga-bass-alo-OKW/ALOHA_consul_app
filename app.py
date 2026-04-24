@@ -13,7 +13,6 @@ st.set_page_config(page_title="ALOHA Mentoring Base Pro", layout="wide")
 COLUMNS = ["日付", "種別", "担当メンター", "生徒氏名", "学年", "文理", "試験名", "課題", "データJSON", "講師用メモ"]
 
 # --- 2. ブラウザ離脱防止アラート (JavaScript) ---
-# タブを閉じたりリロードしようとした時に警告を出します。
 components.html(
     """
     <script>
@@ -105,24 +104,23 @@ if 'dynamic_scores' not in st.session_state:
 st.title("🎓 ALOHA Mentoring Base Pro")
 m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
 
-tab_new, tab_search, tab_stats, tab_preview = st.tabs(["📝 面談記録入力", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"])
+# タブの構成を変更
+tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
+    "📝 面談記録入力", 
+    "⚠️ 未提出アラート", 
+    "🔍 過去ログ・PDF", 
+    "📈 統計", 
+    "📄 レポート出力"
+])
 
+# 全データを一度読み込む（共通利用）
+df_all = load_data()
+
+# --- タブ1: 面談記録入力 ---
 with tab_new:
-    # --- 未提出アラート ---
-    df_all = load_data()
-    if not df_all.empty:
-        latest_dates = df_all.groupby('生徒氏名')['日付'].max().reset_index()
-        alert_threshold = 7
-        missing = latest_dates[latest_dates['日付'] < (datetime.date.today() - datetime.timedelta(days=alert_threshold))]
-        if not missing.empty:
-            with st.expander(f"⚠️ 指導報告の未提出アラート ({len(missing)}名)", expanded=True):
-                for _, r in missing.iterrows():
-                    st.warning(f"**{r['生徒氏名']}**: 最終指導日 {r['日付']}（{alert_threshold}日以上経過）")
-
     st.link_button("🚀 Googleフォームを開く", "https://docs.google.com/forms/d/e/1FAIpQLSdLYRJaDRWkYImkm3pcwDY_lywllRQCcoDWm64XMKsdu2el0w/viewform", type="primary", use_container_width=True)
     st.divider()
 
-    # 基本情報
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
         student_name = c1.text_input("生徒氏名")
@@ -138,7 +136,6 @@ with tab_new:
         date_val = c3.date_input("実施日", datetime.date.today())
         grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
-    # 前回タスク確認
     if st.session_state.prev_actions:
         with st.expander("✅ 前回タスクの達成度確認", expanded=True):
             for i, p_act in enumerate(st.session_state.prev_actions):
@@ -146,7 +143,6 @@ with tab_new:
                 col_a.write(f"**{p_act.get('subject','')}**: {p_act.get('specificTask','')}")
                 p_act['status'] = col_b.select_slider("達成度", options=["×", "△", "◯", "◎"], value="◯", key=f"p_status_{i}")
 
-    # 試験結果
     with st.container(border=True):
         st.subheader("📊 試験結果・目標設定")
         exam_name = st.text_area("試験名 (例: 1学期中間)", height=68)
@@ -163,11 +159,9 @@ with tab_new:
         if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
 
     current_issue = st.text_area("課題認識・指導内容 (生徒への共有用)", height=150)
-    
-    with st.expander("🔐 講師用メモ (生徒には共有されません)", expanded=False):
+    with st.expander("🔐 講師用メモ", expanded=False):
         mentor_private_memo = st.text_area("内部引き継ぎ事項など", key="private_memo", height=150)
 
-    # ネクストアクション
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1}", expanded=True):
@@ -194,7 +188,33 @@ with tab_new:
             }])
             if save_data(new_row): st.success("保存完了！")
 
-# --- タブ2: 検索 & PDF ---
+# --- タブ2: 未提出アラート (新設) ---
+with tab_alert:
+    st.subheader("⚠️ 報告未提出チェック（家庭教師のみ）")
+    if not df_all.empty:
+        # 家庭教師のみ抽出
+        df_kt = df_all[df_all['種別'] == "家庭教師"]
+        
+        if not df_kt.empty:
+            latest_dates = df_kt.groupby('生徒氏名')['日付'].max().reset_index()
+            alert_threshold = 7
+            missing = latest_dates[latest_dates['日付'] < (datetime.date.today() - datetime.timedelta(days=alert_threshold))]
+            
+            if not missing.empty:
+                st.warning(f"最終指導から{alert_threshold}日以上経過している家庭教師の生徒が {len(missing)} 名います。")
+                
+                # 見やすいようにテーブル表示
+                missing['経過日数'] = (datetime.date.today() - missing['日付']).apply(lambda x: x.days)
+                missing = missing.sort_values('経過日数', ascending=False)
+                st.table(missing[['生徒氏名', '日付', '経過日数']].rename(columns={'日付': '最終指導日'}))
+            else:
+                st.success("現在、1週間以上報告が滞っている家庭教師の生徒はいません。")
+        else:
+            st.info("家庭教師のデータがまだ登録されていません。")
+    else:
+        st.info("データがありません。")
+
+# --- タブ3: 過去ログ検索 ---
 with tab_search:
     st.subheader("🔍 過去ログ検索と歩みの出力")
     if not df_all.empty:
@@ -210,7 +230,7 @@ with tab_search:
             if st.button(f"📄 {target_s}様のレポートをPDF出力"):
                 pdf = create_pdf(filtered, target_s); st.download_button("📥 ダウンロード", pdf, f"{target_s}.pdf")
 
-# --- タブ3: 統計 ---
+# --- タブ4: 統計 ---
 with tab_stats:
     st.subheader("📈 指導統計")
     if not df_all.empty:
@@ -222,7 +242,7 @@ with tab_stats:
         st.bar_chart(pivot_df)
         st.table(pivot_df)
 
-# --- タブ4: レポートプレビュー ---
+# --- タブ5: レポートプレビュー ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
     report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n■課題認識\n{current_issue}\n\n■今後のアクション\n"
