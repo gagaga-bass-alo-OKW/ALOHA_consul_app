@@ -6,12 +6,26 @@ import gspread
 from google.oauth2.service_account import Credentials
 from reportlab.pdfgen import canvas
 from io import BytesIO
+import streamlit.components.v1 as components
 
 # --- 1. 基本設定 ---
 st.set_page_config(page_title="ALOHA Mentoring Base Pro", layout="wide")
 COLUMNS = ["日付", "種別", "担当メンター", "生徒氏名", "学年", "文理", "試験名", "課題", "データJSON", "講師用メモ"]
 
-# --- 2. Google Sheets 接続関数 ---
+# --- 2. ブラウザ離脱防止アラート (JavaScript) ---
+# タブを閉じたりリロードしようとした時に警告を出します。
+components.html(
+    """
+    <script>
+    window.onbeforeunload = function() {
+        return "入力内容が保存されない可能性があります。このサイトを離れますか？";
+    };
+    </script>
+    """,
+    height=0,
+)
+
+# --- 3. Google Sheets 接続関数 ---
 def get_gspread_client():
     try:
         if "gspread_credentials" not in st.secrets:
@@ -24,7 +38,7 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"認証エラー: {e}"); return None
 
-# --- 3. データロジック ---
+# --- 4. データ管理ロジック ---
 def load_data():
     client = get_gspread_client()
     if client:
@@ -61,7 +75,7 @@ def get_last_session(student_name):
         if not res.empty: return res.iloc[-1]
     return None
 
-# --- 4. PDF生成関数 ---
+# --- 5. PDF生成 ---
 def create_pdf(df, student_name):
     buffer = BytesIO()
     p = canvas.Canvas(buffer)
@@ -79,7 +93,7 @@ def create_pdf(df, student_name):
     buffer.seek(0)
     return buffer
 
-# --- 5. セッション初期化 ---
+# --- 6. セッション状態初期化 ---
 if 'actions' not in st.session_state:
     st.session_state.actions = [{'subject': '英語', 'priority': '高', 'policy': '', 'specificTask': '', 'deadline': '次回まで'}]
 if 'prev_actions' not in st.session_state:
@@ -87,23 +101,25 @@ if 'prev_actions' not in st.session_state:
 if 'dynamic_scores' not in st.session_state:
     st.session_state.dynamic_scores = [{'subject': '英語'}, {'subject': '数学'}]
 
-# --- 6. UI構築 ---
+# --- 7. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
 m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
 
 tab_new, tab_search, tab_stats, tab_preview = st.tabs(["📝 面談記録入力", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"])
 
-# --- タブ1: 入力 (Googleフォーム連携追加) ---
 with tab_new:
-    # Googleフォームへのリンクボタン (目立つように最上部に配置)
-    st.markdown("### 📋 外部報告フォーム")
-    st.link_button(
-        "🚀 Googleフォームで報告書を提出する", 
-        "https://docs.google.com/forms/d/e/1FAIpQLSdLYRJaDRWkYImkm3pcwDY_lywllRQCcoDWm64XMKsdu2el0w/viewform", 
-        type="primary", 
-        use_container_width=True
-    )
-    st.caption("※報告書の正式な提出は上のボタンから行ってください。以下の入力欄はデータベース保存用です。")
+    # --- 未提出アラート ---
+    df_all = load_data()
+    if not df_all.empty:
+        latest_dates = df_all.groupby('生徒氏名')['日付'].max().reset_index()
+        alert_threshold = 7
+        missing = latest_dates[latest_dates['日付'] < (datetime.date.today() - datetime.timedelta(days=alert_threshold))]
+        if not missing.empty:
+            with st.expander(f"⚠️ 指導報告の未提出アラート ({len(missing)}名)", expanded=True):
+                for _, r in missing.iterrows():
+                    st.warning(f"**{r['生徒氏名']}**: 最終指導日 {r['日付']}（{alert_threshold}日以上経過）")
+
+    st.link_button("🚀 Googleフォームを開く", "https://docs.google.com/forms/d/e/1FAIpQLSdLYRJaDRWkYImkm3pcwDY_lywllRQCcoDWm64XMKsdu2el0w/viewform", type="primary", use_container_width=True)
     st.divider()
 
     # 基本情報
@@ -122,7 +138,7 @@ with tab_new:
         date_val = c3.date_input("実施日", datetime.date.today())
         grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
-    # 前回タスクの振り返り
+    # 前回タスク確認
     if st.session_state.prev_actions:
         with st.expander("✅ 前回タスクの達成度確認", expanded=True):
             for i, p_act in enumerate(st.session_state.prev_actions):
@@ -147,10 +163,9 @@ with tab_new:
         if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
 
     current_issue = st.text_area("課題認識・指導内容 (生徒への共有用)", height=150)
-
-    # 講師用メモ
-    with st.expander("🔐 講師用メモ (内部引き継ぎ用)", expanded=False):
-        mentor_private_memo = st.text_area("内部引き継ぎ事項・懸念点など", key="private_memo", height=150)
+    
+    with st.expander("🔐 講師用メモ (生徒には共有されません)", expanded=False):
+        mentor_private_memo = st.text_area("内部引き継ぎ事項など", key="private_memo", height=150)
 
     # ネクストアクション
     st.subheader("🚀 ネクストアクション")
@@ -177,38 +192,35 @@ with tab_new:
                 "課題": current_issue, "データJSON": json.dumps(full_json, ensure_ascii=False),
                 "講師用メモ": mentor_private_memo
             }])
-            if save_data(new_row): st.success("データベースへの保存が完了しました！")
+            if save_data(new_row): st.success("保存完了！")
 
 # --- タブ2: 検索 & PDF ---
 with tab_search:
     st.subheader("🔍 過去ログ検索と歩みの出力")
-    df_logs = load_data()
-    if not df_logs.empty:
-        target_s = st.selectbox("生徒を選択", ["すべて"] + list(df_logs['生徒氏名'].unique()))
+    if not df_all.empty:
+        target_s = st.selectbox("生徒を選択", ["すべて"] + list(df_all['生徒氏名'].unique()))
         col_d1, col_d2 = st.columns(2)
         start_d = col_d1.date_input("開始日", datetime.date.today() - datetime.timedelta(days=90))
         end_d = col_d2.date_input("終了日", datetime.date.today())
-        filtered = df_logs.copy()
+        filtered = df_all.copy()
         if target_s != "すべて": filtered = filtered[filtered['生徒氏名'] == target_s]
         filtered = filtered[(filtered['日付'] >= start_d) & (filtered['日付'] <= end_d)]
         st.dataframe(filtered.drop(columns=["データJSON"]), use_container_width=True)
         if target_s != "すべて" and not filtered.empty:
             if st.button(f"📄 {target_s}様のレポートをPDF出力"):
                 pdf = create_pdf(filtered, target_s); st.download_button("📥 ダウンロード", pdf, f"{target_s}.pdf")
-    else: st.info("データがありません")
 
 # --- タブ3: 統計 ---
 with tab_stats:
     st.subheader("📈 指導統計")
-    if not df_logs.empty:
+    if not df_all.empty:
         unit_map = {"日ごと": "D", "週ごと": "W-MON", "月ごと": "ME", "年ごと": "YE"}
         selected_unit = st.selectbox("集計単位", list(unit_map.keys()), index=1)
-        df_stats = df_logs.copy()
+        df_stats = df_all.copy()
         df_stats['日付'] = pd.to_datetime(df_stats['日付'])
         pivot_df = df_stats.groupby([pd.Grouper(key='日付', freq=unit_map[selected_unit]), '担当メンター']).size().unstack(fill_value=0)
         st.bar_chart(pivot_df)
         st.table(pivot_df)
-    else: st.info("データがありません")
 
 # --- タブ4: レポートプレビュー ---
 with tab_preview:
