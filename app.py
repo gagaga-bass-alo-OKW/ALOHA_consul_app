@@ -269,8 +269,7 @@ with tab_preview:
     
     for i, a in enumerate(st.session_state.actions):
         # 教科と優先度、期限を一行目に
-        priority_mark = "🔥" if a.get('priority') == "高" else "⭐"
-        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}) {priority_mark}\n"
+        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}) \n"
         
         # 4つの要素をインデントして整理
         if a.get('policy'): report += f"   - 方針: {a['policy']}\n"
