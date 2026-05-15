@@ -8,6 +8,7 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.pagesizes import A4
 from io import BytesIO
 import streamlit.components.v1 as components
+import copy
 
 # --- 1. 基本設定 ---
 st.set_page_config(page_title="ALOHA Mentoring Base Pro", layout="wide")
@@ -29,7 +30,6 @@ components.html(
 def get_gspread_client():
     try:
         if "gspread_credentials" not in st.secrets:
-            st.error("Secretsに [gspread_credentials] が見つかりません。")
             return None
         creds_dict = dict(st.secrets["gspread_credentials"])
         scopes = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
@@ -97,24 +97,20 @@ def create_pdf(df, student_name):
     buffer.seek(0)
     return buffer
 
-# --- 6. セッション状態初期化（デフォルトの科目を削除） ---
+# --- 6. セッション状態初期化 ---
 if 'actions' not in st.session_state:
-    st.session_state.actions = [] # 最初は空にする
+    st.session_state.actions = []
 if 'prev_actions' not in st.session_state:
     st.session_state.prev_actions = []
 if 'dynamic_scores' not in st.session_state:
-    st.session_state.dynamic_scores = [] # 最初は空にする
+    st.session_state.dynamic_scores = []
 
 # --- 7. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
 m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
 
 tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
-    "📝 面談記録入力", 
-    "⚠️ 未提出アラート", 
-    "🔍 過去ログ・PDF", 
-    "📈 統計", 
-    "📄 レポート出力"
+    "📝 面談記録入力", "⚠️ 未提出アラート", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"
 ])
 
 df_all = load_data()
@@ -133,7 +129,7 @@ with tab_new:
             if last_row is not None:
                 last_data = json.loads(last_row['データJSON'])
                 st.session_state.prev_actions = last_data.get('actions', [])
-                st.success(f"{last_row['日付']} のデータを読み込みました")
+                st.success(f"{last_row['日付']} のデータを取得しました。下に振り返り欄が表示されます。")
             else: st.warning("過去のデータが見つかりません")
             
         mentor_name = c2.text_input("担当メンター")
@@ -141,13 +137,27 @@ with tab_new:
         date_val = c3.date_input("実施日", datetime.date.today())
         grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
-    # 前回タスクの振り返り
+    # --- ①前回タスクの振り返り（四指標表示の修正） ---
     if st.session_state.prev_actions:
-        with st.expander("✅ 前回タスクの振り返り（達成度・進捗量）", expanded=True):
+        with st.expander("✅ 前回タスクの振り返り（達成度・進捗詳細）", expanded=True):
             for i, p_act in enumerate(st.session_state.prev_actions):
                 st.markdown(f"**【{p_act.get('subject','科目なし')}】**")
-                p_act['status_num'] = st.number_input(f"達成度 (%) - {p_act.get('subject')}", min_value=0, max_value=100, value=100, step=5, key=f"p_num_{i}")
-                st.session_state.prev_actions[i]['review_comment'] = st.text_area(f"進捗・テスト結果詳細", key=f"p_rev_{i}", height=70)
+                
+                # 四指標を詳細に表示
+                details = []
+                if p_act.get('policy'): details.append(f"**方針**: {p_act['policy']}")
+                if p_act.get('item'):   details.append(f"**①対象**: {p_act['item']}")
+                if p_act.get('amount'): details.append(f"**②量**: {p_act['amount']}")
+                if p_act.get('method'): details.append(f"**③方法**: {p_act['method']}")
+                if p_act.get('goal'):   details.append(f"**④基準**: {p_act['goal']}")
+                
+                if details:
+                    st.markdown("<br>".join(details), unsafe_allow_html=True)
+                
+                col_rev1, col_rev2 = st.columns([1, 2])
+                # 振り返り内容をセッションに保持
+                st.session_state.prev_actions[i]['status_num'] = col_rev1.number_input(f"達成度(%) - {p_act.get('subject')}", min_value=0, max_value=100, value=100, step=5, key=f"p_num_{i}")
+                st.session_state.prev_actions[i]['review_comment'] = col_rev2.text_area(f"進捗・テスト結果詳細", key=f"p_rev_{i}", height=100, placeholder="具体量やテストの点数を記入")
                 st.divider()
 
     with st.container(border=True):
@@ -171,45 +181,55 @@ with tab_new:
 
     st.subheader("🚀 ネクストアクション")
     
-    # 読み込み済みデータがある場合に表示されるコピーボタン
+    # --- ②コピペロジックの修正（1番目も確実にコピー） ---
     if st.session_state.prev_actions:
         if st.button("📋 前回のアクションを今回の入力欄にコピーする", use_container_width=True):
-            new_actions = []
+            copied_list = []
             for pa in st.session_state.prev_actions:
-                new_actions.append({
-                    'subject': pa.get('subject', ''), 
+                # 辞書の中身を確実に新しいオブジェクトとしてコピー
+                entry = {
+                    'subject': pa.get('subject', ''),
                     'priority': pa.get('priority', '中'),
-                    'policy': pa.get('policy', ''), 
+                    'deadline': pa.get('deadline', '次回まで'),
+                    'policy': pa.get('policy', ''),
                     'item': pa.get('item', '') or pa.get('specificTask', ''),
-                    'amount': pa.get('amount', ''), 
+                    'amount': pa.get('amount', ''),
                     'method': pa.get('method', ''),
-                    'goal': pa.get('goal', ''), 
-                    'deadline': pa.get('deadline', '次回まで')
-                })
-            st.session_state.actions = new_actions
+                    'goal': pa.get('goal', '')
+                }
+                copied_list.append(entry)
+            st.session_state.actions = copied_list
             st.rerun()
 
-    # アクション入力欄の生成
-    for i, action in enumerate(st.session_state.actions):
+    # アクション入力
+    for i in range(len(st.session_state.actions)):
+        action = st.session_state.actions[i]
         with st.expander(f"Action {i+1} : {action.get('subject', '新規アクション')}", expanded=True):
             ac1, ac2, ac3 = st.columns([2, 1, 2])
             st.session_state.actions[i]['subject'] = ac1.text_input("教科", value=action.get('subject',''), key=f"as_{i}")
+            
             p_list = ["高", "中", "低"]
-            p_idx = p_list.index(action.get('priority', '中')) if action.get('priority') in p_list else 1
+            cur_p = action.get('priority', '中')
+            p_idx = p_list.index(cur_p) if cur_p in p_list else 1
             st.session_state.actions[i]['priority'] = ac2.selectbox("優先", p_list, index=p_idx, key=f"ap_{i}")
+            
             st.session_state.actions[i]['deadline'] = ac3.text_input("期限", value=action.get('deadline','次回まで'), key=f"ad_{i}")
             st.session_state.actions[i]['policy'] = st.text_area("方針", value=action.get('policy',''), key=f"apol_{i}", height=70)
+            
             c_a, c_b = st.columns(2)
             st.session_state.actions[i]['item'] = c_a.text_input("① 対象", value=action.get('item',''), key=f"aitem_{i}")
             st.session_state.actions[i]['amount'] = c_b.text_input("② 量・頻度", value=action.get('amount',''), key=f"aamt_{i}")
+            
             c_c, c_d = st.columns(2)
             st.session_state.actions[i]['method'] = c_c.text_area("③ 方法", value=action.get('method',''), key=f"ameth_{i}", height=100)
             st.session_state.actions[i]['goal'] = c_d.text_area("④ 基準", value=action.get('goal',''), key=f"agoal_{i}", height=100)
+            
             if st.button("アクション削除", key=f"adel_{i}"):
                 st.session_state.actions.pop(i); st.rerun()
     
     if st.button("＋ アクション追加"):
-        st.session_state.actions.append({'subject': '', 'priority': '中', 'deadline': '次回まで'}); st.rerun()
+        st.session_state.actions.append({'subject': '', 'priority': '中', 'deadline': '次回まで', 'policy': '', 'item': '', 'amount': '', 'method': '', 'goal': ''})
+        st.rerun()
 
     if st.button("💾 データベースに保存する", type="primary"):
         if not student_name: st.error("生徒氏名を入力してください")
@@ -221,22 +241,9 @@ with tab_new:
                 "課題": current_issue, "データJSON": json.dumps(full_json, ensure_ascii=False),
                 "講師用メモ": mentor_private_memo
             }])
-            if save_data(new_row): st.success("保存完了！")
+            if save_data(new_row): st.success("保存完了しました！")
 
-# --- タブ2〜5 (ロジック変更なしのため省略なしで統合) ---
-with tab_alert:
-    st.subheader("⚠️ 報告未提出チェック")
-    if not df_all.empty:
-        df_kt = df_all[df_all['種別'] == "家庭教師"]
-        if not df_kt.empty:
-            latest = df_kt.groupby('生徒氏名')['日付'].max().reset_index()
-            missing = latest[latest['日付'] < (datetime.date.today() - datetime.timedelta(days=7))]
-            if not missing.empty:
-                missing['経過日数'] = (datetime.date.today() - missing['日付']).apply(lambda x: x.days)
-                st.table(missing.sort_values('経過日数', ascending=False))
-            else: st.success("滞りなし")
-    else: st.info("データなし")
-
+# --- タブ3: 過去ログ・PDF出力 ---
 with tab_search:
     st.subheader("🔍 過去ログ検索と歩みの出力")
     if not df_all.empty:
@@ -249,35 +256,32 @@ with tab_search:
         filtered = filtered[(filtered['日付'] >= start_d) & (filtered['日付'] <= end_d)]
         st.dataframe(filtered.drop(columns=["データJSON"]), use_container_width=True)
         if target_s != "すべて" and not filtered.empty:
-            st.divider()
             pdf_data = create_pdf(filtered, target_s)
             st.download_button(label=f"📄 {target_s}様の指導履歴をPDFダウンロード", data=pdf_data, file_name=f"Report_{target_s}.pdf", mime="application/pdf")
 
-with tab_stats:
-    st.subheader("📈 指導統計")
-    if not df_all.empty:
-        df_stats = df_all.copy()
-        df_stats['日付'] = pd.to_datetime(df_stats['日付'])
-        pivot = df_stats.groupby([pd.Grouper(key='日付', freq='W-MON'), '担当メンター']).size().unstack(fill_value=0)
-        st.bar_chart(pivot)
-
+# --- タブ5: レポート出力 ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
     report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n"
+    
     if st.session_state.prev_actions:
         report += "■前回宿題の達成状況\n"
         for p in st.session_state.prev_actions:
             report += f"・{p.get('subject', '科目なし')}: 達成度 {p.get('status_num', 0)}%\n"
             report += f"  [実施状況・結果] {p.get('review_comment', '特記事項なし')}\n"
         report += "\n"
+    
     report += f"■課題認識・指導内容\n{current_issue}\n\n■ネクストアクション\n"
     for i, a in enumerate(st.session_state.actions):
         p_mark = " 🔥" if a.get('priority') == "高" else ""
         report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}){p_mark}\n"
+        if a.get('policy'): report += f"   - 方針: {a['policy']}\n"
         item_val = a.get('item') or a.get('specificTask')
         if item_val: report += f"   - 対象: {item_val}\n"
         if a.get('amount'): report += f"   - ペース: {a['amount']}\n"
         if a.get('method'): report += f"   - 方法: {a['method']}\n"
         if a.get('goal'): report += f"   - 完了基準: {a['goal']}\n"
         report += "\n"
+    
     st.code(report, language="text")
+    st.info("💡 上記をコピーしてLINE等に貼り付けてください。")
