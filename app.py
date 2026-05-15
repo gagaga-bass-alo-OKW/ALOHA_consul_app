@@ -112,6 +112,7 @@ tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
     "📄 レポート出力"
 ])
 
+# 全データを読み込む
 df_all = load_data()
 
 # --- タブ1: 面談記録入力 ---
@@ -127,8 +128,6 @@ with tab_new:
             if last_row is not None:
                 last_data = json.loads(last_row['データJSON'])
                 st.session_state.prev_actions = last_data.get('actions', [])
-                # 今のアクション入力欄にも、前回の「教科名」などを初期値として入れたい場合はここで反映可能ですが、
-                # 混乱を避けるため「前回確認欄」に全詳細を表示するようにします。
                 st.success(f"{last_row['日付']} のデータを読み込みました")
             else: st.warning("過去のデータが見つかりません")
         mentor_name = c2.text_input("担当メンター")
@@ -136,30 +135,21 @@ with tab_new:
         date_val = c3.date_input("実施日", datetime.date.today())
         grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
-    # 前回タスク確認（ここで「詳細」が見えるように修正）
+    # --- 前回タスクの振り返りセクション ---
     if st.session_state.prev_actions:
-        with st.expander("✅ 前回タスクの達成度確認（詳細表示中）", expanded=True):
+        with st.expander("✅ 前回タスクの振り返り（達成度・進捗量）", expanded=True):
             for i, p_act in enumerate(st.session_state.prev_actions):
                 st.markdown(f"**【{p_act.get('subject','科目なし')}】**")
-                
-                # 詳細情報を並べる
                 details = []
-                # 旧データ（specificTask）がある場合は方針欄として扱う互換性
                 main_task = p_act.get('item') or p_act.get('specificTask', 'なし')
                 if p_act.get('policy'): details.append(f"方針: {p_act['policy']}")
                 details.append(f"対象: {main_task}")
                 if p_act.get('amount'): details.append(f"量: {p_act['amount']}")
-                if p_act.get('method'): details.append(f"方法: {p_act['method']}")
-                if p_act.get('goal'): details.append(f"基準: {p_act['goal']}")
-                
                 st.caption(" | ".join(details))
                 
-                p_act['status'] = st.select_slider(
-                    f"達成度 ({p_act.get('subject')})", 
-                    options=["×", "△", "◯", "◎"], 
-                    value="◯", 
-                    key=f"p_status_{i}"
-                )
+                col_rev1, col_rev2 = st.columns([1, 2])
+                st.session_state.prev_actions[i]['status_num'] = col_rev1.number_input(f"達成度 (%)", min_value=0, max_value=100, value=100, step=5, key=f"p_num_{i}")
+                st.session_state.prev_actions[i]['review_comment'] = col_rev2.text_area(f"実際の進捗・テスト結果", key=f"p_rev_{i}", height=70, placeholder="例: 150番まで完了。テスト18/20点。")
                 st.divider()
 
     with st.container(border=True):
@@ -181,7 +171,7 @@ with tab_new:
     with st.expander("🔐 講師用メモ", expanded=False):
         mentor_private_memo = st.text_area("内部引き継ぎ事項など", key="private_memo", height=150)
 
-    # ネクストアクション（4分割入力）
+    # --- ネクストアクション（4分割入力） ---
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1} : {action.get('subject', '新規アクション')}", expanded=True):
@@ -191,14 +181,12 @@ with tab_new:
             st.session_state.actions[i]['deadline'] = ac3.text_input("期限", value=action.get('deadline','次回まで'), key=f"ad_{i}")
             
             st.session_state.actions[i]['policy'] = st.text_area("方針（なぜこの勉強をするか）", value=action.get('policy',''), key=f"apol_{i}", height=70)
-            
             c_a, c_b = st.columns(2)
-            st.session_state.actions[i]['item'] = c_a.text_input("① 対象（どの教材・ページ？）", value=action.get('item',''), key=f"aitem_{i}", placeholder="ターゲット1900 1-200")
-            st.session_state.actions[i]['amount'] = c_b.text_input("② 量・頻度（1日どれくらい？）", value=action.get('amount',''), key=f"aamt_{i}", placeholder="1日50個×4日＋総復習")
-            
+            st.session_state.actions[i]['item'] = c_a.text_input("① 対象（どの教材・ページ？）", value=action.get('item',''), key=f"aitem_{i}")
+            st.session_state.actions[i]['amount'] = c_b.text_input("② 量・頻度（1日どれくらい？）", value=action.get('amount',''), key=f"aamt_{i}")
             c_c, c_d = st.columns(2)
-            st.session_state.actions[i]['method'] = c_c.text_area("③ 方法（どうやってやる？）", value=action.get('method',''), key=f"ameth_{i}", height=100, placeholder="赤シートで隠して即答。間違えたら×。")
-            st.session_state.actions[i]['goal'] = c_d.text_area("④ 基準（完了の定義は？）", value=action.get('goal',''), key=f"agoal_{i}", height=100, placeholder="全問1秒以内に意味が出る。正答率95%以上。")
+            st.session_state.actions[i]['method'] = c_c.text_area("③ 方法（どうやってやる？）", value=action.get('method',''), key=f"ameth_{i}", height=100)
+            st.session_state.actions[i]['goal'] = c_d.text_area("④ 基準（完了の定義は？）", value=action.get('goal',''), key=f"agoal_{i}", height=100)
             
             if st.button("アクション削除", key=f"adel_{i}"):
                 st.session_state.actions.pop(i); st.rerun()
@@ -209,7 +197,11 @@ with tab_new:
     if st.button("💾 データベースに保存する", type="primary"):
         if not student_name: st.error("生徒氏名を入力してください")
         else:
-            full_json = {"scores": score_results, "actions": st.session_state.actions}
+            full_json = {
+                "scores": score_results, 
+                "actions": st.session_state.actions,
+                "prev_review": st.session_state.prev_actions
+            }
             new_row = pd.DataFrame([{
                 "日付": date_val.strftime('%Y-%m-%d'), "種別": m_type, "担当メンター": mentor_name, 
                 "生徒氏名": student_name, "学年": grade, "文理": stream, "試験名": exam_name, 
@@ -232,9 +224,8 @@ with tab_alert:
                 missing['経過日数'] = (datetime.date.today() - missing['日付']).apply(lambda x: x.days)
                 missing = missing.sort_values('経過日数', ascending=False)
                 st.table(missing[['生徒氏名', '日付', '経過日数']].rename(columns={'日付': '最終指導日'}))
-            else: st.success("現在、1週間以上報告が滞っている家庭教師の生徒はいません。")
-        else: st.info("家庭教師のデータがまだ登録されていません。")
-    else: st.info("データがありません。")
+            else: st.success("現在、滞っている家庭教師の生徒はいません。")
+        else: st.info("家庭教師のデータがありません。")
 
 # --- タブ3: 過去ログ検索 ---
 with tab_search:
@@ -267,11 +258,21 @@ with tab_stats:
 # --- タブ5: レポートプレビュー ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
-    report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n■課題認識・指導内容\n{current_issue}\n\n■今後のアクション（ネクストアクション）\n"
+    report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n"
+    
+    if st.session_state.prev_actions:
+        report += "■前回宿題の達成状況\n"
+        for p in st.session_state.prev_actions:
+            report += f"・{p.get('subject', '科目なし')}: 達成度 {p.get('status_num', 0)}%\n"
+            report += f"  [実施状況・テスト結果]\n  {p.get('review_comment', '特記事項なし')}\n"
+        report += "\n"
+
+    report += f"■課題認識・指導内容\n{current_issue}\n\n"
+    report += "■今後のアクション（ネクストアクション）\n"
     for i, a in enumerate(st.session_state.actions):
-        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')})\n"
+        p_mark = " 🔥" if a.get('priority') == "高" else ""
+        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}){p_mark}\n"
         if a.get('policy'): report += f"   - 方針: {a['policy']}\n"
-        # itemがない場合は旧形式のspecificTaskを探す
         item_val = a.get('item') or a.get('specificTask')
         if item_val:      report += f"   - 対象: {item_val}\n"
         if a.get('amount'): report += f"   - ペース: {a['amount']}\n"
@@ -279,4 +280,4 @@ with tab_preview:
         if a.get('goal'):   report += f"   - 完了基準: {a['goal']}\n"
         report += "\n"
     st.code(report, language="text")
-    st.info("💡 上記のテキストをコピーしてLINEと指導報告に貼り付けてください。")
+    st.info("💡 テキストをコピーして利用してください。")
