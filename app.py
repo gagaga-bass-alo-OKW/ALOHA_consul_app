@@ -75,7 +75,7 @@ def get_last_session(student_name):
         if not res.empty: return res.iloc[-1]
     return None
 
-# --- 5. PDF生成（簡易版：日本語の文字化け回避のため英語ヘッダー中心） ---
+# --- 5. PDF生成 ---
 def create_pdf(df, student_name):
     buffer = BytesIO()
     p = canvas.Canvas(buffer, pagesize=A4)
@@ -97,17 +97,17 @@ def create_pdf(df, student_name):
     buffer.seek(0)
     return buffer
 
-# --- 6. セッション状態初期化 ---
+# --- 6. セッション状態初期化（デフォルトの科目を削除） ---
 if 'actions' not in st.session_state:
-    st.session_state.actions = [{'subject': '英語', 'priority': '高', 'policy': '', 'item': '', 'amount': '', 'method': '', 'goal': '', 'deadline': '次回まで'}]
+    st.session_state.actions = [] # 最初は空にする
 if 'prev_actions' not in st.session_state:
     st.session_state.prev_actions = []
 if 'dynamic_scores' not in st.session_state:
-    st.session_state.dynamic_scores = [{'subject': '英語'}, {'subject': '数学'}]
+    st.session_state.dynamic_scores = [] # 最初は空にする
 
 # --- 7. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
-m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="家庭教師")
+m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
 
 tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
     "📝 面談記録入力", 
@@ -141,6 +141,7 @@ with tab_new:
         date_val = c3.date_input("実施日", datetime.date.today())
         grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
+    # 前回タスクの振り返り
     if st.session_state.prev_actions:
         with st.expander("✅ 前回タスクの振り返り（達成度・進捗量）", expanded=True):
             for i, p_act in enumerate(st.session_state.prev_actions):
@@ -162,26 +163,33 @@ with tab_new:
             if r[4].button("🗑️", key=f"sd_{i}"):
                 st.session_state.dynamic_scores.pop(i); st.rerun()
             score_results.append({"subject": sub, "score": sc, "target": tg})
-        if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
+        if st.button("＋ 試験科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
 
     current_issue = st.text_area("課題認識・指導内容", height=150)
     with st.expander("🔐 講師用メモ", expanded=False):
         mentor_private_memo = st.text_area("内部引き継ぎ", key="private_memo", height=150)
 
     st.subheader("🚀 ネクストアクション")
+    
+    # 読み込み済みデータがある場合に表示されるコピーボタン
     if st.session_state.prev_actions:
         if st.button("📋 前回のアクションを今回の入力欄にコピーする", use_container_width=True):
             new_actions = []
             for pa in st.session_state.prev_actions:
                 new_actions.append({
-                    'subject': pa.get('subject', ''), 'priority': pa.get('priority', '中'),
-                    'policy': pa.get('policy', ''), 'item': pa.get('item', '') or pa.get('specificTask', ''),
-                    'amount': pa.get('amount', ''), 'method': pa.get('method', ''),
-                    'goal': pa.get('goal', ''), 'deadline': pa.get('deadline', '次回まで')
+                    'subject': pa.get('subject', ''), 
+                    'priority': pa.get('priority', '中'),
+                    'policy': pa.get('policy', ''), 
+                    'item': pa.get('item', '') or pa.get('specificTask', ''),
+                    'amount': pa.get('amount', ''), 
+                    'method': pa.get('method', ''),
+                    'goal': pa.get('goal', ''), 
+                    'deadline': pa.get('deadline', '次回まで')
                 })
             st.session_state.actions = new_actions
             st.rerun()
 
+    # アクション入力欄の生成
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1} : {action.get('subject', '新規アクション')}", expanded=True):
             ac1, ac2, ac3 = st.columns([2, 1, 2])
@@ -215,7 +223,7 @@ with tab_new:
             }])
             if save_data(new_row): st.success("保存完了！")
 
-# --- タブ2: アラート ---
+# --- タブ2〜5 (ロジック変更なしのため省略なしで統合) ---
 with tab_alert:
     st.subheader("⚠️ 報告未提出チェック")
     if not df_all.empty:
@@ -229,7 +237,6 @@ with tab_alert:
             else: st.success("滞りなし")
     else: st.info("データなし")
 
-# --- タブ3: 過去ログ・PDF出力 (ここが重要) ---
 with tab_search:
     st.subheader("🔍 過去ログ検索と歩みの出力")
     if not df_all.empty:
@@ -241,20 +248,11 @@ with tab_search:
         if target_s != "すべて": filtered = filtered[filtered['生徒氏名'] == target_s]
         filtered = filtered[(filtered['日付'] >= start_d) & (filtered['日付'] <= end_d)]
         st.dataframe(filtered.drop(columns=["データJSON"]), use_container_width=True)
-        
         if target_s != "すべて" and not filtered.empty:
             st.divider()
-            # PDF出力ボタンを設置
             pdf_data = create_pdf(filtered, target_s)
-            st.download_button(
-                label=f"📄 {target_s}様の指導履歴をPDFでダウンロード",
-                data=pdf_data,
-                file_name=f"Report_{target_s}_{datetime.date.today()}.pdf",
-                mime="application/pdf",
-                key="download-pdf"
-            )
+            st.download_button(label=f"📄 {target_s}様の指導履歴をPDFダウンロード", data=pdf_data, file_name=f"Report_{target_s}.pdf", mime="application/pdf")
 
-# --- タブ4: 統計 ---
 with tab_stats:
     st.subheader("📈 指導統計")
     if not df_all.empty:
@@ -263,7 +261,6 @@ with tab_stats:
         pivot = df_stats.groupby([pd.Grouper(key='日付', freq='W-MON'), '担当メンター']).size().unstack(fill_value=0)
         st.bar_chart(pivot)
 
-# --- タブ5: レポート出力 ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
     report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n"
@@ -271,9 +268,9 @@ with tab_preview:
         report += "■前回宿題の達成状況\n"
         for p in st.session_state.prev_actions:
             report += f"・{p.get('subject', '科目なし')}: 達成度 {p.get('status_num', 0)}%\n"
-            report += f"  [実施状況・テスト結果]\n  {p.get('review_comment', '特記事項なし')}\n"
+            report += f"  [実施状況・結果] {p.get('review_comment', '特記事項なし')}\n"
         report += "\n"
-    report += f"■課題認識・指導内容\n{current_issue}\n\n■今後のアクション\n"
+    report += f"■課題認識・指導内容\n{current_issue}\n\n■ネクストアクション\n"
     for i, a in enumerate(st.session_state.actions):
         p_mark = " 🔥" if a.get('priority') == "高" else ""
         report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}){p_mark}\n"
