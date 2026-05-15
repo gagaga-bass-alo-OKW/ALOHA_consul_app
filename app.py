@@ -79,7 +79,9 @@ if 'prev_actions' not in st.session_state: st.session_state.prev_actions = []
 if 'dynamic_scores' not in st.session_state: st.session_state.dynamic_scores = []
 if 'edit_mode' not in st.session_state: st.session_state.edit_mode = False
 if 'edit_index' not in st.session_state: st.session_state.edit_index = None
-if 'edit_data' not in st.session_state: st.session_state.edit_data = {}
+# 編集データのバッファを初期化
+if 'edit_buffer' not in st.session_state: 
+    st.session_state.edit_buffer = {}
 
 def reset_session():
     st.session_state.actions = []
@@ -87,7 +89,8 @@ def reset_session():
     st.session_state.dynamic_scores = []
     st.session_state.edit_mode = False
     st.session_state.edit_index = None
-    st.session_state.edit_data = {}
+    st.session_state.edit_buffer = {}
+    # 入力フォームを強制リセットするためにクエリパラメータなどを使う手法もありますが、ここではbufferを空にします
 
 # --- 5. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
@@ -111,8 +114,10 @@ with tab_new:
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
         
-        # 編集モード時は edit_data から値を読み込む
-        student_name = c1.text_input("生徒氏名", value=st.session_state.edit_data.get("s_name", ""), key="input_s_name")
+        # 編集バッファがあればそこから、なければ空を初期値に
+        student_name = c1.text_input("生徒氏名", 
+                                     value=st.session_state.edit_buffer.get("s_name", ""), 
+                                     key="input_s_name")
         
         if c1.button("🔄 前回データを検索・読み込み"):
             res = df_all[df_all['生徒氏名'] == student_name]
@@ -122,17 +127,21 @@ with tab_new:
                 st.success(f"{last_row['日付']}のデータを取得。")
             else: st.warning("過去データなし")
         
-        mentor_name = c2.text_input("担当メンター", value=st.session_state.edit_data.get("m_name", ""), key="input_m_name")
+        mentor_name = c2.text_input("担当メンター", 
+                                    value=st.session_state.edit_buffer.get("m_name", ""), 
+                                    key="input_m_name")
         
         stream_list = ["理系", "文系"]
-        s_val = st.session_state.edit_data.get("stream", "理系")
+        s_val = st.session_state.edit_buffer.get("stream", "理系")
         s_idx = stream_list.index(s_val) if s_val in stream_list else 0
         stream = c2.radio("文理", stream_list, index=s_idx, horizontal=True, key="input_stream")
         
-        date_val = c3.date_input("実施日", datetime.date.today(), key="input_date")
+        # 日付の初期値処理
+        d_val = st.session_state.edit_buffer.get("date", datetime.date.today())
+        date_val = c3.date_input("実施日", value=d_val, key="input_date")
         
         grade_list = ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"]
-        g_val = st.session_state.edit_data.get("grade", "高3")
+        g_val = st.session_state.edit_buffer.get("grade", "高3")
         g_idx = grade_list.index(g_val) if g_val in grade_list else 5
         grade = c3.selectbox("学年", grade_list, index=g_idx, key="input_grade")
 
@@ -151,7 +160,7 @@ with tab_new:
         else: st.info("生徒名入力後に前回データを読み込んでください。")
 
     with sub2:
-        exam_name = st.text_input("試験名", value=st.session_state.edit_data.get("exam", ""), placeholder="例: 中間テスト", key="input_exam")
+        exam_name = st.text_input("試験名", value=st.session_state.edit_buffer.get("exam", ""), placeholder="例: 中間テスト", key="input_exam")
         for i, item in enumerate(st.session_state.dynamic_scores):
             r = st.columns([2, 1, 1, 1, 0.5])
             sub_val = r[0].text_input("科目", value=item.get('subject',''), key=f"s_n_{i}")
@@ -163,8 +172,8 @@ with tab_new:
             st.session_state.dynamic_scores[i] = {"subject": sub_val, "score": sc_val, "target": tg_val}
         if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
         st.divider()
-        current_issue = st.text_area("課題認識・指導内容（レポート用）", value=st.session_state.edit_data.get("issue", ""), key="input_issue", height=150)
-        mentor_memo = st.text_area("内部用メモ", value=st.session_state.edit_data.get("memo", ""), key="input_memo", height=70)
+        current_issue = st.text_area("課題認識・指導内容（レポート用）", value=st.session_state.edit_buffer.get("issue", ""), key="input_issue", height=150)
+        mentor_memo = st.text_area("内部用メモ", value=st.session_state.edit_buffer.get("memo", ""), key="input_memo", height=70)
 
     with sub3:
         if st.session_state.prev_actions and st.button("📋 前回のアクションをコピー", use_container_width=True):
@@ -200,8 +209,9 @@ with tab_new:
                     full_json = {"scores": st.session_state.dynamic_scores, "actions": st.session_state.actions, "prev_review": st.session_state.prev_actions}
                     new_row = [date_val.strftime('%Y-%m-%d'), m_type, mentor_name, student_name, grade, stream, exam_name, current_issue, json.dumps(full_json, ensure_ascii=False), mentor_memo]
                     if st.session_state.edit_mode:
-                        ws.delete_rows(st.session_state.edit_index + 2)
-                        ws.insert_rows([new_row], st.session_state.edit_index + 2)
+                        # スプレッドシート上の行（ヘッダーがあるので index + 2）を削除して挿入
+                        ws.delete_rows(int(st.session_state.edit_index) + 2)
+                        ws.insert_rows([new_row], int(st.session_state.edit_index) + 2)
                         st.success("更新しました！")
                     else:
                         ws.append_row(new_row)
@@ -215,6 +225,7 @@ with tab_alert:
         df_kt = df_all[df_all['種別'] == "家庭教師"]
         if not df_kt.empty:
             latest = df_kt.groupby('生徒氏名')['日付'].max().reset_index()
+            # 7日以上前のものを抽出
             missing = latest[latest['日付'] < (datetime.date.today() - datetime.timedelta(days=7))]
             if not missing.empty:
                 missing['経過日数'] = (datetime.date.today() - missing['日付']).apply(lambda x: x.days)
@@ -228,36 +239,44 @@ with tab_search:
         target_s = st.selectbox("生徒を選択", ["すべて"] + list(df_all['生徒氏名'].unique()))
         filtered = df_all[df_all['生徒氏名'] == target_s] if target_s != "すべて" else df_all
         
-        for idx, row in filtered.iterrows():
+        # 反転させて最新順に表示
+        for idx, row in filtered[::-1].iterrows():
             with st.expander(f"{row['日付']} | {row['生徒氏名']} | {row['担当メンター']}"):
                 col_txt, col_edit, col_del = st.columns([3, 1, 1])
                 col_txt.write(f"**課題:** {row['課題']}")
                 
+                # 編集ボタン
                 if col_edit.button("📝 編集", key=f"edit_btn_{idx}"):
                     data_obj = json.loads(row['データJSON'])
+                    
+                    # 1. セッション状態を更新
                     st.session_state.edit_mode = True
                     st.session_state.edit_index = idx
-                    # リスト・辞書データをセッションへ
+                    
+                    # 2. リスト系データのロード
                     st.session_state.actions = data_obj.get('actions', [])
                     st.session_state.prev_actions = data_obj.get('prev_review', [])
                     st.session_state.dynamic_scores = data_obj.get('scores', [])
-                    # 単一フィールドを edit_data バッファへ
-                    st.session_state.edit_data = {
+                    
+                    # 3. 編集バッファ（単一の値）のロード
+                    st.session_state.edit_buffer = {
                         "s_name": row['生徒氏名'],
                         "m_name": row['担当メンター'],
                         "issue": row['課題'],
                         "memo": row['講師用メモ'],
                         "exam": row['試験名'],
                         "grade": row['学年'],
-                        "stream": row['文理']
+                        "stream": row['文理'],
+                        "date": row['日付']
                     }
-                    st.info("データをロードしました。面談記録入力タブに移動してください。")
+                    st.info("データをロードしました。「📝 面談記録入力」タブに移動して編集してください。")
                     st.rerun()
                 
+                # 削除ボタン
                 if col_del.button("🗑️ 削除", key=f"del_btn_{idx}"):
                     ws = get_worksheet()
                     if ws:
-                        ws.delete_rows(idx + 2)
+                        ws.delete_rows(int(idx) + 2)
                         st.success("削除しました")
                         st.rerun()
         
@@ -273,7 +292,9 @@ with tab_stats:
         for _, r in df_all.iterrows():
             d = json.loads(r['データJSON'])
             acts = d.get('actions', [])
-            score_avg = sum([p.get('status_num', 100) for p in d.get('prev_review', [])]) / max(len(d.get('prev_review', [])), 1)
+            # 達成度の平均計算
+            prev_rev = d.get('prev_review', [])
+            score_avg = sum([p.get('status_num', 100) for p in prev_rev]) / max(len(prev_rev), 1)
             stats_list.append({
                 "日付": r["日付"], "生徒": r["生徒氏名"], "メンター": r["担当メンター"],
                 "平均達成度": f"{score_avg:.1f}%", "課題": r["課題"], 
