@@ -94,7 +94,7 @@ def create_pdf(df, student_name):
 
 # --- 6. セッション状態初期化 ---
 if 'actions' not in st.session_state:
-    st.session_state.actions = [{'subject': '英語', 'priority': '高', 'policy': '', 'specificTask': '', 'deadline': '次回まで'}]
+    st.session_state.actions = [{'subject': '英語', 'priority': '高', 'policy': '', 'item': '', 'amount': '', 'method': '', 'goal': '', 'deadline': '次回まで'}]
 if 'prev_actions' not in st.session_state:
     st.session_state.prev_actions = []
 if 'dynamic_scores' not in st.session_state:
@@ -104,7 +104,6 @@ if 'dynamic_scores' not in st.session_state:
 st.title("🎓 ALOHA Mentoring Base Pro")
 m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="定期面談")
 
-# タブの構成を変更
 tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
     "📝 面談記録入力", 
     "⚠️ 未提出アラート", 
@@ -113,7 +112,6 @@ tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
     "📄 レポート出力"
 ])
 
-# 全データを一度読み込む（共通利用）
 df_all = load_data()
 
 # --- タブ1: 面談記録入力 ---
@@ -129,6 +127,8 @@ with tab_new:
             if last_row is not None:
                 last_data = json.loads(last_row['データJSON'])
                 st.session_state.prev_actions = last_data.get('actions', [])
+                # 今のアクション入力欄にも、前回の「教科名」などを初期値として入れたい場合はここで反映可能ですが、
+                # 混乱を避けるため「前回確認欄」に全詳細を表示するようにします。
                 st.success(f"{last_row['日付']} のデータを読み込みました")
             else: st.warning("過去のデータが見つかりません")
         mentor_name = c2.text_input("担当メンター")
@@ -136,12 +136,31 @@ with tab_new:
         date_val = c3.date_input("実施日", datetime.date.today())
         grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
+    # 前回タスク確認（ここで「詳細」が見えるように修正）
     if st.session_state.prev_actions:
-        with st.expander("✅ 前回タスクの達成度確認", expanded=True):
+        with st.expander("✅ 前回タスクの達成度確認（詳細表示中）", expanded=True):
             for i, p_act in enumerate(st.session_state.prev_actions):
-                col_a, col_b = st.columns([3, 1])
-                col_a.write(f"**{p_act.get('subject','')}**: {p_act.get('specificTask','')}")
-                p_act['status'] = col_b.select_slider("達成度", options=["×", "△", "◯", "◎"], value="◯", key=f"p_status_{i}")
+                st.markdown(f"**【{p_act.get('subject','科目なし')}】**")
+                
+                # 詳細情報を並べる
+                details = []
+                # 旧データ（specificTask）がある場合は方針欄として扱う互換性
+                main_task = p_act.get('item') or p_act.get('specificTask', 'なし')
+                if p_act.get('policy'): details.append(f"方針: {p_act['policy']}")
+                details.append(f"対象: {main_task}")
+                if p_act.get('amount'): details.append(f"量: {p_act['amount']}")
+                if p_act.get('method'): details.append(f"方法: {p_act['method']}")
+                if p_act.get('goal'): details.append(f"基準: {p_act['goal']}")
+                
+                st.caption(" | ".join(details))
+                
+                p_act['status'] = st.select_slider(
+                    f"達成度 ({p_act.get('subject')})", 
+                    options=["×", "△", "◯", "◎"], 
+                    value="◯", 
+                    key=f"p_status_{i}"
+                )
+                st.divider()
 
     with st.container(border=True):
         st.subheader("📊 試験結果・目標設定")
@@ -162,18 +181,17 @@ with tab_new:
     with st.expander("🔐 講師用メモ", expanded=False):
         mentor_private_memo = st.text_area("内部引き継ぎ事項など", key="private_memo", height=150)
 
-   # ネクストアクション
+    # ネクストアクション（4分割入力）
     st.subheader("🚀 ネクストアクション")
     for i, action in enumerate(st.session_state.actions):
         with st.expander(f"Action {i+1} : {action.get('subject', '新規アクション')}", expanded=True):
             ac1, ac2, ac3 = st.columns([2, 1, 2])
-            st.session_state.actions[i]['subject'] = ac1.text_input("教科", value=action['subject'], key=f"as_{i}")
-            st.session_state.actions[i]['priority'] = ac2.selectbox("優先", ["高", "中", "低"], key=f"ap_{i}")
-            st.session_state.actions[i]['deadline'] = ac3.text_input("期限", value=action['deadline'], key=f"ad_{i}")
+            st.session_state.actions[i]['subject'] = ac1.text_input("教科", value=action.get('subject',''), key=f"as_{i}")
+            st.session_state.actions[i]['priority'] = ac2.selectbox("優先", ["高", "中", "低"], index=["高", "中", "低"].index(action.get('priority','中')), key=f"ap_{i}")
+            st.session_state.actions[i]['deadline'] = ac3.text_input("期限", value=action.get('deadline','次回まで'), key=f"ad_{i}")
             
             st.session_state.actions[i]['policy'] = st.text_area("方針（なぜこの勉強をするか）", value=action.get('policy',''), key=f"apol_{i}", height=70)
             
-            # --- 4つの要素に分解 ---
             c_a, c_b = st.columns(2)
             st.session_state.actions[i]['item'] = c_a.text_input("① 対象（どの教材・ページ？）", value=action.get('item',''), key=f"aitem_{i}", placeholder="ターゲット1900 1-200")
             st.session_state.actions[i]['amount'] = c_b.text_input("② 量・頻度（1日どれくらい？）", value=action.get('amount',''), key=f"aamt_{i}", placeholder="1日50個×4日＋総復習")
@@ -184,8 +202,9 @@ with tab_new:
             
             if st.button("アクション削除", key=f"adel_{i}"):
                 st.session_state.actions.pop(i); st.rerun()
+    
     if st.button("＋ アクション追加"):
-        st.session_state.actions.append({'subject': '', 'priority': '中', 'policy': '', 'specificTask': '', 'deadline': '次回まで'}); st.rerun()
+        st.session_state.actions.append({'subject': '', 'priority': '中', 'policy': '', 'item': '', 'amount': '', 'method': '', 'goal': '', 'deadline': '次回まで'}); st.rerun()
 
     if st.button("💾 データベースに保存する", type="primary"):
         if not student_name: st.error("生徒氏名を入力してください")
@@ -199,31 +218,23 @@ with tab_new:
             }])
             if save_data(new_row): st.success("保存完了！")
 
-# --- タブ2: 未提出アラート (新設) ---
+# --- タブ2: 未提出アラート ---
 with tab_alert:
     st.subheader("⚠️ 報告未提出チェック（家庭教師のみ）")
     if not df_all.empty:
-        # 家庭教師のみ抽出
         df_kt = df_all[df_all['種別'] == "家庭教師"]
-        
         if not df_kt.empty:
             latest_dates = df_kt.groupby('生徒氏名')['日付'].max().reset_index()
             alert_threshold = 7
             missing = latest_dates[latest_dates['日付'] < (datetime.date.today() - datetime.timedelta(days=alert_threshold))]
-            
             if not missing.empty:
                 st.warning(f"最終指導から{alert_threshold}日以上経過している家庭教師の生徒が {len(missing)} 名います。")
-                
-                # 見やすいようにテーブル表示
                 missing['経過日数'] = (datetime.date.today() - missing['日付']).apply(lambda x: x.days)
                 missing = missing.sort_values('経過日数', ascending=False)
                 st.table(missing[['生徒氏名', '日付', '経過日数']].rename(columns={'日付': '最終指導日'}))
-            else:
-                st.success("現在、1週間以上報告が滞っている家庭教師の生徒はいません。")
-        else:
-            st.info("家庭教師のデータがまだ登録されていません。")
-    else:
-        st.info("データがありません。")
+            else: st.success("現在、1週間以上報告が滞っている家庭教師の生徒はいません。")
+        else: st.info("家庭教師のデータがまだ登録されていません。")
+    else: st.info("データがありません。")
 
 # --- タブ3: 過去ログ検索 ---
 with tab_search:
@@ -256,28 +267,16 @@ with tab_stats:
 # --- タブ5: レポートプレビュー ---
 with tab_preview:
     st.subheader("📄 指導レポート出力")
-    
-    # 基本情報の構築
-    report = f"【{m_type}報告書】\n"
-    report += f"実施日: {date_val}\n"
-    report += f"担当: {mentor_name}\n"
-    report += f"生徒: {student_name}様\n\n"
-    
-    report += f"■課題認識・指導内容\n{current_issue}\n\n"
-    
-    report += "■今後のアクション（ネクストアクション）\n"
-    
+    report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n■課題認識・指導内容\n{current_issue}\n\n■今後のアクション（ネクストアクション）\n"
     for i, a in enumerate(st.session_state.actions):
-        # 教科と優先度、期限を一行目に
-        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')}) \n"
-        
-        # 4つの要素をインデントして整理
+        report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')})\n"
         if a.get('policy'): report += f"   - 方針: {a['policy']}\n"
-        if a.get('item'):   report += f"   - 対象: {a['item']}\n"
+        # itemがない場合は旧形式のspecificTaskを探す
+        item_val = a.get('item') or a.get('specificTask')
+        if item_val:      report += f"   - 対象: {item_val}\n"
         if a.get('amount'): report += f"   - ペース: {a['amount']}\n"
         if a.get('method'): report += f"   - 方法: {a['method']}\n"
         if a.get('goal'):   report += f"   - 完了基準: {a['goal']}\n"
-        report += "\n" # アクションごとの改行
-        
+        report += "\n"
     st.code(report, language="text")
     st.info("💡 上記のテキストをコピーしてLINEと指導報告に貼り付けてください。")
