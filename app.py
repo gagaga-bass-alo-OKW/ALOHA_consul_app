@@ -33,35 +33,29 @@ def get_gspread_client():
     except Exception as e:
         st.error(f"認証エラー: {e}"); return None
 
-def get_worksheet():
+def load_data():
     client = get_gspread_client()
     if client:
-        sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
-        sheet = client.open_by_url(sheet_url)
-        return sheet.worksheet("logs")
-    return None
-
-def load_data():
-    ws = get_worksheet()
-    if ws:
-        data = ws.get_all_records()
-        if data:
-            df = pd.DataFrame(data)
-            df['日付'] = pd.to_datetime(df['日付']).dt.date
-            return df
+        try:
+            sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            sheet = client.open_by_url(sheet_url)
+            worksheet = sheet.worksheet("logs")
+            data = worksheet.get_all_records()
+            if data:
+                df = pd.DataFrame(data)
+                df['日付'] = pd.to_datetime(df['日付']).dt.date
+                return df
+        except: pass
     return pd.DataFrame(columns=COLUMNS)
 
-def save_data(new_row_df, edit_index=None):
-    ws = get_worksheet()
-    if ws:
+def save_data(new_row_df):
+    client = get_gspread_client()
+    if client:
         try:
-            if edit_index is not None:
-                # 編集モード：該当行（ヘッダーがあるので+2）を削除して挿入
-                ws.delete_rows(edit_index + 2)
-                ws.insert_rows(new_row_df.values.tolist(), edit_index + 2)
-            else:
-                # 新規保存
-                ws.append_rows(new_row_df.values.tolist())
+            sheet_url = st.secrets["connections"]["gsheets"]["spreadsheet"]
+            sheet = client.open_by_url(sheet_url)
+            worksheet = sheet.worksheet("logs")
+            worksheet.append_rows(new_row_df.values.tolist())
             return True
         except Exception as e:
             st.error(f"保存エラー: {e}"); return False
@@ -95,46 +89,34 @@ def create_pdf(df, student_name):
 if 'actions' not in st.session_state: st.session_state.actions = []
 if 'prev_actions' not in st.session_state: st.session_state.prev_actions = []
 if 'dynamic_scores' not in st.session_state: st.session_state.dynamic_scores = []
-if 'edit_mode' not in st.session_state: st.session_state.edit_mode = False
-if 'edit_index' not in st.session_state: st.session_state.edit_index = None
 
 # --- 7. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
 
-# タブ定義
+# 指導種別のデフォルトを「家庭教師」に変更
+m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="家庭教師")
+
 tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
     "📝 面談記録入力", "⚠️ 未提出アラート", "🔍 過去ログ・PDF", "📈 統計", "📄 レポート出力"
 ])
 
 df_all = load_data()
 
-# --- タブ1: 面談記録入力 ---
 with tab_new:
-    if st.session_state.edit_mode:
-        st.warning(f"現在、過去ログを編集モードで開いています（インデックス: {st.session_state.edit_index}）")
-        if st.button("編集をキャンセルして新規作成に戻る"):
-            st.session_state.edit_mode = False
-            st.session_state.edit_index = None
-            st.session_state.actions = []; st.session_state.prev_actions = []; st.session_state.dynamic_scores = []
-            st.rerun()
-
-    m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="家庭教師", key="main_m_type")
-
     with st.container(border=True):
         c1, c2, c3 = st.columns([2, 2, 1])
-        # 編集モード時はセッションから初期値を入れる
-        student_name = c1.text_input("生徒氏名", key="input_name")
+        student_name = c1.text_input("生徒氏名")
         if c1.button("🔄 前回データを検索・読み込み"):
             last_row = get_last_session(student_name)
             if last_row is not None:
                 last_data = json.loads(last_row['データJSON'])
                 st.session_state.prev_actions = last_data.get('actions', [])
-                st.success(f"{last_row['日付']}のデータを取得。")
+                st.success(f"{last_row['日付']}のデータを取得。各タブに入力してください。")
             else: st.warning("過去データなし")
-        mentor_name = c2.text_input("担当メンター", key="input_mentor")
-        stream = c2.radio("文理", ["理系", "文系"], horizontal=True, key="input_stream")
-        date_val = c3.date_input("実施日", datetime.date.today(), key="input_date")
-        grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5, key="input_grade")
+        mentor_name = c2.text_input("担当メンター")
+        stream = c2.radio("文理", ["理系", "文系"], horizontal=True)
+        date_val = c3.date_input("実施日", datetime.date.today())
+        grade = c3.selectbox("学年", ["中1", "中2", "中3", "高1", "高2", "高3", "既卒"], index=5)
 
     sub1, sub2, sub3 = st.tabs(["✅ 1. 前回振り返り", "📊 2. 試験結果・課題認識", "🚀 3. ネクストアクション"])
 
@@ -146,13 +128,12 @@ with tab_new:
                     txt = f"方針: {p.get('policy','')}\n対象: {p.get('item','')}\n量: {p.get('amount','')}\n方法: {p.get('method','')}\n基準: {p.get('goal','')}"
                     st.caption(txt.replace('\n', ' | '))
                     col_a, col_b = st.columns([1, 2])
-                    # 値の保持
-                    st.session_state.prev_actions[i]['status_num'] = col_a.number_input("達成度(%)", 0, 100, p.get('status_num', 100), 5, key=f"p_n_{i}")
-                    st.session_state.prev_actions[i]['review_comment'] = col_b.text_area("進捗詳細・テスト結果", p.get('review_comment',''), key=f"p_r_{i}", height=70)
-        else: st.info("前回データが読み込まれていません。")
+                    st.session_state.prev_actions[i]['status_num'] = col_a.number_input("達成度(%)", 0, 100, 100, 5, key=f"p_n_{i}")
+                    st.session_state.prev_actions[i]['review_comment'] = col_b.text_area("進捗詳細・テスト結果", key=f"p_r_{i}", height=70)
+        else: st.info("生徒名入力後に前回データを読み込んでください。")
 
     with sub2:
-        exam_name = st.text_input("試験名", key="input_exam")
+        exam_name = st.text_input("試験名", placeholder="例: 中間テスト")
         for i, item in enumerate(st.session_state.dynamic_scores):
             r = st.columns([2, 1, 1, 1, 0.5])
             sub_val = r[0].text_input("科目", value=item.get('subject',''), key=f"s_n_{i}")
@@ -164,8 +145,8 @@ with tab_new:
             st.session_state.dynamic_scores[i] = {"subject": sub_val, "score": sc_val, "target": tg_val}
         if st.button("＋ 科目追加"): st.session_state.dynamic_scores.append({}); st.rerun()
         st.divider()
-        current_issue = st.text_area("課題認識・指導内容（レポート用）", key="input_issue", height=150)
-        mentor_private_memo = st.text_area("内部用メモ", key="input_memo", height=70)
+        current_issue = st.text_area("課題認識・指導内容（レポート用）", height=150)
+        mentor_private_memo = st.text_area("内部用メモ", height=70)
 
     with sub3:
         if st.session_state.prev_actions and st.button("📋 前回のアクションをコピー", use_container_width=True):
@@ -175,9 +156,7 @@ with tab_new:
             with st.expander(f"Action {i+1} : {st.session_state.actions[i].get('subject','')}", expanded=True):
                 c_a, c_b, c_c = st.columns([2, 1, 2])
                 st.session_state.actions[i]['subject'] = c_a.text_input("教科", st.session_state.actions[i].get('subject',''), key=f"as_{i}")
-                p_list = ["高","中","低"]
-                p_val = st.session_state.actions[i].get('priority','中')
-                st.session_state.actions[i]['priority'] = c_b.selectbox("優先", p_list, index=p_list.index(p_val) if p_val in p_list else 1, key=f"ap_{i}")
+                st.session_state.actions[i]['priority'] = c_b.selectbox("優先", ["高","中","低"], index=["高","中","低"].index(st.session_state.actions[i].get('priority','中')), key=f"ap_{i}")
                 st.session_state.actions[i]['deadline'] = c_c.text_input("期限", st.session_state.actions[i].get('deadline','次回まで'), key=f"ad_{i}")
                 st.session_state.actions[i]['policy'] = st.text_area("方針", st.session_state.actions[i].get('policy',''), key=f"apol_{i}", height=70)
                 l, r = st.columns(2)
@@ -189,9 +168,7 @@ with tab_new:
                 if st.button("削除", key=f"adel_{i}"): st.session_state.actions.pop(i); st.rerun()
         if st.button("＋ 追加"): st.session_state.actions.append({'priority':'中'}); st.rerun()
         st.divider()
-        
-        btn_label = "💾 上記の内容で上書き保存する" if st.session_state.edit_mode else "💾 データベースに新規保存"
-        if st.button(btn_label, type="primary", use_container_width=True):
+        if st.button("💾 データベースに保存", type="primary", use_container_width=True):
             if not student_name: st.error("生徒名を入力してください")
             else:
                 full_json = {"scores": st.session_state.dynamic_scores, "actions": st.session_state.actions, "prev_review": st.session_state.prev_actions}
@@ -200,44 +177,8 @@ with tab_new:
                     "学年": grade, "文理": stream, "試験名": exam_name, "課題": current_issue, 
                     "データJSON": json.dumps(full_json, ensure_ascii=False), "講師用メモ": mentor_private_memo
                 }])
-                if save_data(new_row, edit_index=st.session_state.edit_index):
-                    st.success("保存完了！")
-                    st.session_state.edit_mode = False; st.session_state.edit_index = None
-                    st.rerun()
+                if save_data(new_row): st.success("保存成功！レポート出力タブを確認してください。")
 
-# --- タブ3: 過去ログ検索（編集ボタン追加） ---
-with tab_search:
-    st.subheader("🔍 過去ログ検索と編集")
-    if not df_all.empty:
-        target_s = st.selectbox("生徒を選択", ["すべて"] + list(df_all['生徒氏名'].unique()), key="filter_s")
-        filtered = df_all.copy()
-        if target_s != "すべて": filtered = filtered[filtered['生徒氏名'] == target_s]
-        
-        # 簡易的なテーブル表示と編集ボタン
-        for idx, row in filtered.iterrows():
-            with st.expander(f"{row['日付']} | {row['生徒氏名']} | {row['担当メンター']}"):
-                col_left, col_right = st.columns([4, 1])
-                col_left.write(f"**課題:** {row['課題']}")
-                if col_right.button("📝 この内容を編集する", key=f"edit_btn_{idx}"):
-                    # データをセッションに詰め込む
-                    data_obj = json.loads(row['データJSON'])
-                    st.session_state.edit_mode = True
-                    st.session_state.edit_index = idx
-                    # 各入力フィールドへの反映
-                    st.session_state.actions = data_obj.get('actions', [])
-                    st.session_state.prev_actions = data_obj.get('prev_review', [])
-                    st.session_state.dynamic_scores = data_obj.get('scores', [])
-                    # st.text_inputなどのvalueを強制更新するためにrerun
-                    # (keyを使っているため、初回読み込み時のみ反映される点に注意)
-                    st.info("編集データを読み込みました。面談記録入力タブに移動してください。")
-                    st.rerun()
-        
-        st.divider()
-        if target_s != "すべて" and not filtered.empty:
-            pdf = create_pdf(filtered, target_s)
-            st.download_button("📄 指導履歴PDFダウンロード", pdf, f"Report_{target_s}.pdf")
-
-# アラート・統計・レポートは変更なしのため省略なしで統合
 with tab_alert:
     st.subheader("⚠️ 報告未提出チェック")
     if not df_all.empty:
@@ -248,6 +189,17 @@ with tab_alert:
             if not missing.empty:
                 missing['経過日数'] = (datetime.date.today() - missing['日付']).apply(lambda x: x.days)
                 st.table(missing.sort_values('経過日数', ascending=False))
+            else: st.success("滞りなし")
+
+with tab_search:
+    st.subheader("🔍 過去ログ検索")
+    if not df_all.empty:
+        target_s = st.selectbox("生徒を選択", ["すべて"] + list(df_all['生徒氏名'].unique()))
+        filtered = df_all[df_all['生徒氏名'] == target_s] if target_s != "すべて" else df_all
+        st.dataframe(filtered.drop(columns=["データJSON"]), use_container_width=True)
+        if target_s != "すべて" and not filtered.empty:
+            pdf = create_pdf(filtered, target_s)
+            st.download_button("📄 PDFダウンロード", pdf, f"Report_{target_s}.pdf")
 
 with tab_stats:
     st.subheader("📈 指導統計")
@@ -257,18 +209,19 @@ with tab_stats:
         st.bar_chart(pivot)
 
 with tab_preview:
-    st.subheader("📄 LINE用レポート出力")
-    # レポート生成ロジックは常にセッション状態(actions等)を参照
+    st.subheader("📄 LINE用レポート")
     report = f"【{m_type}報告書】\n実施日: {date_val}\n担当: {mentor_name}\n生徒: {student_name}様\n\n"
     if st.session_state.prev_actions:
         report += "■前回宿題の達成状況\n"
         for p in st.session_state.prev_actions:
             report += f"・{p.get('subject', '科目なし')}: 達成度 {p.get('status_num', 0)}%\n  [結果] {p.get('review_comment', '特記なし')}\n"
-    report += f"\n■課題認識・指導内容\n{current_issue}\n\n■ネクストアクション\n"
+        report += "\n"
+    report += f"■課題認識・指導内容\n{current_issue}\n\n■ネクストアクション\n"
     for i, a in enumerate(st.session_state.actions):
         report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')})\n"
         if a.get('item'): report += f"   - 対象: {a['item']}\n"
         if a.get('amount'): report += f"   - ペース: {a['amount']}\n"
         if a.get('method'): report += f"   - 方法: {a['method']}\n"
         if a.get('goal'): report += f"   - 完了基準: {a['goal']}\n"
+        report += "\n"
     st.code(report, language="text")
