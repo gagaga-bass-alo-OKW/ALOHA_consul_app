@@ -90,7 +90,6 @@ def reset_session():
     st.session_state.edit_mode = False
     st.session_state.edit_index = None
     st.session_state.edit_buffer = {}
-    # 入力フォームを強制リセットするためにクエリパラメータなどを使う手法もありますが、ここではbufferを空にします
 
 # --- 5. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
@@ -107,7 +106,7 @@ df_all = load_data()
 # --- タブ1: 面談記録入力 ---
 with tab_new:
     if st.session_state.edit_mode:
-        st.warning("⚠️ 現在【編集モード】です。保存すると既存のデータが更新されます。")
+        st.warning("⚠️ 現在【編集モード】です。保存すると既存 of データが更新されます。")
         if st.button("編集をキャンセルして新規作成に戻る"):
             reset_session(); st.rerun()
 
@@ -323,3 +322,9 @@ with tab_preview:
         report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')})\n"
         report += f"   - 方針: {a.get('policy','')}\n   - 対象: {a.get('item','')}\n   - 方法: {a.get('method','')}\n   - 基準: {a.get('goal','')}\n\n"
     st.code(report, language="text")
+
+    # --- 復活：外部フォームの埋め込みセクション ---
+    st.divider()
+    st.subheader("📋 外部入力フォーム")
+    # Form_URL_Here を実際にお使いのフォームのURLに書き換えてください
+    st.components.v1.iframe("https://forms.gle/GqQ8uVbZpKHaJQdYA", height=600, scrolling=True)
