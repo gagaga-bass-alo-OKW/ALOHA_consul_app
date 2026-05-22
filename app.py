@@ -350,4 +350,4 @@ with tab_preview:
 
     st.divider()
     st.subheader("📋 外部入力フォーム")
-    st.components.v1.iframe("Form_URL_Here", height=600, scrolling=True)
+    st.components.v1.iframe("https://docs.google.com/forms/d/1JMOC-Z_9vriNBimmBw4pgc1D00wMbDU7B6IAQ54Ow_4/edit?usp=drive_web&ouid=113985220314672725630", height=600, scrolling=True)
