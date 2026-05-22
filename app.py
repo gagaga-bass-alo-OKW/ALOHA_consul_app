@@ -347,7 +347,3 @@ with tab_preview:
         report += f"   - 方針: {a.get('policy','')}\n   - 対象: {a.get('item','')}\n   - 方法: {a.get('method','')}\n   - 基準: {a.get('goal','')}\n\n"
     
     st.code(report, language="text")
-
-    st.divider()
-    st.subheader("📋 外部入力フォーム")
-    st.components.v1.iframe("https://docs.google.com/forms/d/1JMOC-Z_9vriNBimmBw4pgc1D00wMbDU7B6IAQ54Ow_4/edit?usp=drive_web&ouid=113985220314672725630", height=600, scrolling=True)
