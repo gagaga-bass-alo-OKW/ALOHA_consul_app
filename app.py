@@ -77,6 +77,7 @@ def create_pdf(df, student_name):
 if 'actions' not in st.session_state: st.session_state.actions = []
 if 'prev_actions' not in st.session_state: st.session_state.prev_actions = []
 if 'dynamic_scores' not in st.session_state: st.session_state.dynamic_scores = []
+if 'prev_target_scores' not in st.session_state: st.session_state.prev_target_scores = []  # 前回目標保持用
 if 'edit_mode' not in st.session_state: st.session_state.edit_mode = False
 if 'edit_index' not in st.session_state: st.session_state.edit_index = None
 if 'edit_buffer' not in st.session_state: st.session_state.edit_buffer = {}
@@ -86,6 +87,7 @@ def reset_session():
     st.session_state.actions = []
     st.session_state.prev_actions = []
     st.session_state.dynamic_scores = []
+    st.session_state.prev_target_scores = []
     st.session_state.edit_mode = False
     st.session_state.edit_index = None
     st.session_state.edit_buffer = {}
@@ -133,9 +135,17 @@ with tab_new:
             res = df_all[df_all['生徒氏名'] == student_name]
             if not res.empty:
                 last_row = res.iloc[-1]
-                st.session_state.prev_actions = json.loads(last_row['データJSON']).get('actions', [])
-                st.success(f"{last_row['日付']}のデータを取得。")
-            else: st.warning("過去データなし")
+                last_json = json.loads(last_row['データJSON'])
+                
+                # 前回のアクションを読み込み
+                st.session_state.prev_actions = last_json.get('actions', [])
+                
+                # 【新機能】直近の「目標点数」データを退避させておく
+                st.session_state.prev_target_scores = last_json.get('scores', [])
+                
+                st.success(f"{last_row['日付']}のデータを取得しました。")
+            else: 
+                st.warning("過去データなし")
         
         mentor_name = c2.text_input("担当メンター", 
                                     value=st.session_state.edit_buffer.get("m_name", ""), 
@@ -171,6 +181,16 @@ with tab_new:
     with sub2:
         exam_name = st.text_input("試験名", value=st.session_state.edit_buffer.get("exam", ""), placeholder="例: 中間テスト", key=f"input_exam_{final_suffix}")
         
+        # 【新機能】前回目標点数の再現ボタン
+        if st.session_state.prev_target_scores:
+            if st.button("🎯 前回の目標点数を再現", use_container_width=True):
+                # 前回の科目を引き継ぎ、点数は0リセット、目標点数は前回値をそのままセット
+                st.session_state.dynamic_scores = [
+                    {"subject": s.get("subject", ""), "score": 0, "target": int(s.get("target", 0))}
+                    for s in st.session_state.prev_target_scores
+                ]
+                st.rerun()
+
         new_scores = []
         for i, item in enumerate(st.session_state.dynamic_scores):
             r = st.columns([2, 1, 1, 1, 0.5])
@@ -235,8 +255,7 @@ with tab_new:
             st.session_state.actions = new_actions
 
         if st.button("＋ アクション追加"): 
-            st.session_state.actions.append({'priority':'中', 'deadline':'次回まで'})
-            st.rerun()
+            st.session_state.actions.append({'priority':'中', 'deadline':'次回まで'}); st.rerun()
             
         st.divider()
         
@@ -347,3 +366,7 @@ with tab_preview:
         report += f"   - 方針: {a.get('policy','')}\n   - 対象: {a.get('item','')}\n   - 方法: {a.get('method','')}\n   - 基準: {a.get('goal','')}\n\n"
     
     st.code(report, language="text")
+
+    st.divider()
+    st.subheader("📋 外部入力フォーム")
+    st.components.v1.iframe("Form_URL_Here", height=600, scrolling=True)
