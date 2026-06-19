@@ -134,16 +134,27 @@ with tab_new:
         if c1.button("🔄 前回データを検索・読み込み"):
             res = df_all[df_all['生徒氏名'] == student_name]
             if not res.empty:
+                # 直近の通常データを取得
                 last_row = res.iloc[-1]
                 last_json = json.loads(last_row['データJSON'])
-                
-                # 前回のアクションを読み込み
                 st.session_state.prev_actions = last_json.get('actions', [])
                 
-                # 【新機能】直近の「目標点数」データを退避させておく
-                st.session_state.prev_target_scores = last_json.get('scores', [])
+                # 【ロジック強化】過去ログを最新順に遡り、点数データ（scores）が入っている行を執念深く探す
+                found_scores = []
+                for _, row in res[::-1].iterrows():
+                    try:
+                        js = json.loads(row['データJSON'])
+                        if js.get('scores'): # scoresにデータが存在すれば確保
+                            found_scores = js.get('scores')
+                            break
+                    except: pass
                 
-                st.success(f"{last_row['日付']}のデータを取得しました。")
+                st.session_state.prev_target_scores = found_scores
+                
+                if found_scores:
+                    st.success(f"{last_row['日付']}のデータを取得（過去の目標点数データも発見しました）。")
+                else:
+                    st.success(f"{last_row['日付']}のデータを取得（過去に目標点数の登録はありません）。")
             else: 
                 st.warning("過去データなし")
         
@@ -181,15 +192,16 @@ with tab_new:
     with sub2:
         exam_name = st.text_input("試験名", value=st.session_state.edit_buffer.get("exam", ""), placeholder="例: 中間テスト", key=f"input_exam_{final_suffix}")
         
-        # 【新機能】前回目標点数の再現ボタン
+        # 前回目標点数の再現ボタン（過去データが存在する場合のみ表示）
         if st.session_state.prev_target_scores:
-            if st.button("🎯 前回の目標点数を再現", use_container_width=True):
-                # 前回の科目を引き継ぎ、点数は0リセット、目標点数は前回値をそのままセット
+            if st.button("🎯 前回の目標点数を再現する", use_container_width=True, type="secondary"):
                 st.session_state.dynamic_scores = [
                     {"subject": s.get("subject", ""), "score": 0, "target": int(s.get("target", 0))}
                     for s in st.session_state.prev_target_scores
                 ]
                 st.rerun()
+        else:
+            st.caption("※この生徒の過去ログに目標点数のデータが見つからないため、再現ボタンは非表示です。新しく科目を追加して保存すると、次回から再現可能になります。")
 
         new_scores = []
         for i, item in enumerate(st.session_state.dynamic_scores):
@@ -255,7 +267,8 @@ with tab_new:
             st.session_state.actions = new_actions
 
         if st.button("＋ アクション追加"): 
-            st.session_state.actions.append({'priority':'中', 'deadline':'次回まで'}); st.rerun()
+            st.session_state.actions.append({'priority':'中', 'deadline':'次回まで'})
+            st.rerun()
             
         st.divider()
         
