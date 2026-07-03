@@ -45,16 +45,18 @@ def get_worksheet():
     return None
 
 def load_data():
-    ws = get_worksheet()
-    if ws:
-        try:
-            data = ws.get_all_records()
-            if data:
-                df = pd.DataFrame(data)
-                df['日付'] = pd.to_datetime(df['日付']).dt.date
-                return df
-        except: pass
-    return pd.DataFrame(columns=COLUMNS)
+    # 起動時・更新時のデータ全体読み込みにロード表示を追加
+    with st.spinner("スプレッドシートから最新データを読み込んでいます..."):
+        ws = get_worksheet()
+        if ws:
+            try:
+                data = ws.get_all_records()
+                if data:
+                    df = pd.DataFrame(data)
+                    df['日付'] = pd.to_datetime(df['日付']).dt.date
+                    return df
+            except: pass
+        return pd.DataFrame(columns=COLUMNS)
 
 def create_pdf(df, student_name):
     buffer = BytesIO()
@@ -132,31 +134,36 @@ with tab_new:
                                      key=f"input_s_name_{final_suffix}")
         
         if c1.button("🔄 前回データを検索・読み込み"):
-            res = df_all[df_all['生徒氏名'] == student_name]
-            if not res.empty:
-                # 直近の通常データを取得
-                last_row = res.iloc[-1]
-                last_json = json.loads(last_row['データJSON'])
-                st.session_state.prev_actions = last_json.get('actions', [])
-                
-                # 【ロジック強化】過去ログを最新順に遡り、点数データ（scores）が入っている行を執念深く探す
-                found_scores = []
-                for _, row in res[::-1].iterrows():
-                    try:
-                        js = json.loads(row['データJSON'])
-                        if js.get('scores'): # scoresにデータが存在すれば確保
-                            found_scores = js.get('scores')
-                            break
-                    except: pass
-                
-                st.session_state.prev_target_scores = found_scores
-                
-                if found_scores:
-                    st.success(f"{last_row['日付']}のデータを取得（過去の目標点数データも発見しました）。")
-                else:
-                    st.success(f"{last_row['日付']}のデータを取得（過去に目標点数の登録はありません）。")
-            else: 
-                st.warning("過去データなし")
+            if not student_name:
+                st.error("生徒氏名を入力してから検索してください")
+            else:
+                # 検索処理にロード表示を追加
+                with st.spinner(f"{student_name} 氏名の過去データを照合中..."):
+                    res = df_all[df_all['生徒氏名'] == student_name]
+                    if not res.empty:
+                        # 直近の通常データを取得
+                        last_row = res.iloc[-1]
+                        last_json = json.loads(last_row['データJSON'])
+                        st.session_state.prev_actions = last_json.get('actions', [])
+                        
+                        # 過去ログを最新順に遡り、点数データ（scores）が入っている行を探索
+                        found_scores = []
+                        for _, row in res[::-1].iterrows():
+                            try:
+                                js = json.loads(row['データJSON'])
+                                if js.get('scores'): 
+                                    found_scores = js.get('scores')
+                                    break
+                            except: pass
+                        
+                        st.session_state.prev_target_scores = found_scores
+                        
+                        if found_scores:
+                            st.success(f"{last_row['日付']}のデータを取得（過去の目標点数データも発見しました）。")
+                        else:
+                            st.success(f"{last_row['日付']}のデータを取得（過去に目標点数の登録はありません）。")
+                    else: 
+                        st.warning("過去データなし")
         
         mentor_name = c2.text_input("担当メンター", 
                                     value=st.session_state.edit_buffer.get("m_name", ""), 
@@ -192,7 +199,7 @@ with tab_new:
     with sub2:
         exam_name = st.text_input("試験名", value=st.session_state.edit_buffer.get("exam", ""), placeholder="例: 中間テスト", key=f"input_exam_{final_suffix}")
         
-        # 前回目標点数の再現ボタン（過去データが存在する場合のみ表示）
+        # 前回目標点数の再現ボタン
         if st.session_state.prev_target_scores:
             if st.button("🎯 前回の目標点数を再現する", use_container_width=True, type="secondary"):
                 st.session_state.dynamic_scores = [
@@ -276,18 +283,20 @@ with tab_new:
         if st.button(save_label, type="primary", use_container_width=True):
             if not student_name: st.error("生徒名を入力してください")
             else:
-                ws = get_worksheet()
-                if ws:
-                    full_json = {"scores": st.session_state.dynamic_scores, "actions": st.session_state.actions, "prev_review": st.session_state.prev_actions}
-                    new_row = [date_val.strftime('%Y-%m-%d'), m_type, mentor_name, student_name, grade, stream, exam_name, current_issue, json.dumps(full_json, ensure_ascii=False), mentor_memo]
-                    if st.session_state.edit_mode:
-                        ws.delete_rows(int(st.session_state.edit_index) + 2)
-                        ws.insert_rows([new_row], int(st.session_state.edit_index) + 2)
-                        st.toast("🆙 データを上書き保存しました！（入力データは保持されています）")
-                    else:
-                        ws.append_row(new_row)
-                        st.toast("💾 データベースに保存しました！（入力データは保持されています）")
-                    st.rerun()
+                # 保存・更新処理にロード表示を追加
+                with st.spinner("クラウドデータベースに送信・保存処理中..."):
+                    ws = get_worksheet()
+                    if ws:
+                        full_json = {"scores": st.session_state.dynamic_scores, "actions": st.session_state.actions, "prev_review": st.session_state.prev_actions}
+                        new_row = [date_val.strftime('%Y-%m-%d'), m_type, mentor_name, student_name, grade, stream, exam_name, current_issue, json.dumps(full_json, ensure_ascii=False), mentor_memo]
+                        if st.session_state.edit_mode:
+                            ws.delete_rows(int(st.session_state.edit_index) + 2)
+                            ws.insert_rows([new_row], int(st.session_state.edit_index) + 2)
+                            st.toast("🆙 データを上書き保存しました！（入力データは保持されています）")
+                        else:
+                            ws.append_row(new_row)
+                            st.toast("💾 データベースに保存しました！（入力データは保持されています）")
+                        st.rerun()
 
 # --- タブ2: 未提出アラート ---
 with tab_alert:
@@ -330,11 +339,13 @@ with tab_search:
                     st.rerun()
                 
                 if col_del.button("🗑️ 削除", key=f"del_btn_{idx}"):
-                    ws = get_worksheet()
-                    if ws:
-                        ws.delete_rows(int(idx) + 2)
-                        st.success("削除しました")
-                        st.rerun()
+                    # 削除実行処理にロード表示を追加
+                    with st.spinner("スプレッドシートから該当行を削除中..."):
+                        ws = get_worksheet()
+                        if ws:
+                            ws.delete_rows(int(idx) + 2)
+                            st.success("削除しました")
+                            st.rerun()
         
         if target_s != "すべて" and not filtered.empty:
             pdf = create_pdf(filtered, target_s)
