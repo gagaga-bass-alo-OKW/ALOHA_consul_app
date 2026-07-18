@@ -45,7 +45,6 @@ def get_worksheet():
     return None
 
 def load_data():
-    # 起動時・更新時のデータ全体読み込みにロード表示を追加
     with st.spinner("スプレッドシートから最新データを読み込んでいます..."):
         ws = get_worksheet()
         if ws:
@@ -98,7 +97,6 @@ def reset_session():
 # --- 5. メインUI ---
 st.title("🎓 ALOHA Mentoring Base Pro")
 
-# 画面最上部に配置
 col_top1, col_top2 = st.columns([3, 1])
 with col_top1:
     m_type = st.segmented_control("指導種別", ["定期面談", "家庭教師"], default="家庭教師")
@@ -114,7 +112,6 @@ tab_new, tab_alert, tab_search, tab_stats, tab_preview = st.tabs([
 
 df_all = load_data()
 
-# 完全リセット時にウィジェットを強制的にリフレッシュするための動的キープレフィックス
 prefix = f"v_{st.session_state.reset_trigger}_"
 suffix = f"_edit_{st.session_state.edit_index}" if st.session_state.edit_mode else "_new"
 final_suffix = f"{prefix}{suffix}"
@@ -137,16 +134,13 @@ with tab_new:
             if not student_name:
                 st.error("生徒氏名を入力してから検索してください")
             else:
-                # 検索処理にロード表示を追加
                 with st.spinner(f"{student_name} 氏名の過去データを照合中..."):
                     res = df_all[df_all['生徒氏名'] == student_name]
                     if not res.empty:
-                        # 直近の通常データを取得
                         last_row = res.iloc[-1]
                         last_json = json.loads(last_row['データJSON'])
                         st.session_state.prev_actions = last_json.get('actions', [])
                         
-                        # 過去ログを最新順に遡り、点数データ（scores）が入っている行を探索
                         found_scores = []
                         for _, row in res[::-1].iterrows():
                             try:
@@ -199,7 +193,6 @@ with tab_new:
     with sub2:
         exam_name = st.text_input("試験名", value=st.session_state.edit_buffer.get("exam", ""), placeholder="例: 中間テスト", key=f"input_exam_{final_suffix}")
         
-        # 前回目標点数の再現ボタン
         if st.session_state.prev_target_scores:
             if st.button("🎯 前回の目標点数を再現する", use_container_width=True, type="secondary"):
                 st.session_state.dynamic_scores = [
@@ -283,7 +276,6 @@ with tab_new:
         if st.button(save_label, type="primary", use_container_width=True):
             if not student_name: st.error("生徒名を入力してください")
             else:
-                # 保存・更新処理にロード表示を追加
                 with st.spinner("クラウドデータベースに送信・保存処理中..."):
                     ws = get_worksheet()
                     if ws:
@@ -339,7 +331,6 @@ with tab_search:
                     st.rerun()
                 
                 if col_del.button("🗑️ 削除", key=f"del_btn_{idx}"):
-                    # 削除実行処理にロード表示を追加
                     with st.spinner("スプレッドシートから該当行を削除中..."):
                         ws = get_worksheet()
                         if ws:
@@ -387,10 +378,10 @@ with tab_preview:
     report += f"\n■課題認識・指導内容\n{cur_issue}\n\n■ネクストアクション\n"
     for i, a in enumerate(st.session_state.actions):
         report += f"{i+1}. 【{a.get('subject', '科目なし')}】 ({a.get('deadline', '期限なし')})\n"
-        report += f"   - 方針: {a.get('policy','')}\n   - 対象: {a.get('item','')}\n   - 方法: {a.get('method','')}\n   - 基準: {a.get('goal','')}\n\n"
+        report += f"   - 方針: {a.get('policy','')}\n"
+        report += f"   - 対象: {a.get('item','')}\n"  # ①対象の出力追加
+        report += f"   - 分量: {a.get('amount','')}\n"  # ②量の出力追加
+        report += f"   - 方法: {a.get('method','')}\n"
+        report += f"   - 基準: {a.get('goal','')}\n\n"
     
     st.code(report, language="text")
-
-    st.divider()
-    st.subheader("📋 外部入力フォーム")
-    st.components.v1.iframe("Form_URL_Here", height=600, scrolling=True)
